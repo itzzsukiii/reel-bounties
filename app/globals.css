@@ -2,13 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #08080F;
-  --foreground: #F4F4F6;
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
 }
 
+html,
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  max-width: 100vw;
+  overflow-x: hidden;
+  background-color: #08080C;
+  color: #F4F4F6;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
 }

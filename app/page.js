@@ -1,53 +1,68 @@
+// app/page.jsx
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
+  submitProofAction, 
+  approveSubmissionAction, 
+  rejectSubmissionAction, 
+  deleteListingAction, 
+  toggleListingStatusAction 
+} from '@/app/actions';
+import { 
   Briefcase, CheckCircle, MessageSquare, Shield, Trash2, 
-  PauseCircle, PlayCircle, ExternalLink, Copy, Check, 
-  Lock, Send, Link as LinkIcon, PlusCircle, Trophy, Clock, 
-  Sparkles, DollarSign, LogIn, LogOut, User, X
+  PauseCircle, PlayCircle, Send, Link as LinkIcon, PlusCircle, Trophy, Clock, 
+  DollarSign, LogIn, LogOut, User, X, 
+  ArrowUpRight, Calculator, Calendar, Building2, CheckSquare,
+  Search, SlidersHorizontal, AlertCircle, Check
 } from 'lucide-react';
 
-const ADMIN_PIN = process.env.NEXT_PUBLIC_ADMIN_PIN || "9832";
+const PRIMARY_ADMIN_EMAIL = 'gameraarush999@gmail.com';
 
-// Fixed & Locked Creator Core Logo Component
-function CreatorCoreLogo({ size = 32, className = "" }) {
+const isValidContentUrl = (url) => {
+  try {
+    const parsed = new URL(url.trim());
+    const validDomains = ['instagram.com', 'www.instagram.com', 'youtube.com', 'www.youtube.com', 'youtu.be', 'tiktok.com', 'www.tiktok.com'];
+    return validDomains.some(d => parsed.hostname.endsWith(d));
+  } catch {
+    return false;
+  }
+};
+
+const calculatePayout = (item, viewsClaimed) => {
+  if (!item) return 0;
+  if (item.type === 'BOUNTY') {
+    return Number(item.reward_inr) || 0;
+  }
+  const v = Number(viewsClaimed) || 0;
+  const r = Number(item.reward_inr) || 0;
+  return Math.round((v / 1000) * r);
+};
+
+function CreatorCoreLogo({ size = 32 }) {
   return (
     <svg 
       viewBox="0 0 100 100" 
       width={size} 
       height={size} 
-      style={{ 
-        width: `${size}px`, 
-        height: `${size}px`, 
-        minWidth: `${size}px`, 
-        minHeight: `${size}px`, 
-        display: 'inline-block' 
-      }}
+      style={{ minWidth: `${size}px`, minHeight: `${size}px`, display: 'inline-block' }}
       fill="none" 
-      xmlns="http://www.w3.org/2000/svg" 
-      className={className}
+      xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
-        <linearGradient id="cGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id="ccGrad" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#FFFFFF" />
-          <stop offset="70%" stopColor="#E9E5FF" />
+          <stop offset="65%" stopColor="#E9E5FF" />
           <stop offset="100%" stopColor="#C988FF" />
         </linearGradient>
-        <linearGradient id="starGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id="ccStar" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#887DFF" />
           <stop offset="100%" stopColor="#C988FF" />
         </linearGradient>
       </defs>
-      <path
-        d="M 68 22 A 40 40 0 1 0 68 78 L 68 60 A 22 22 0 1 1 68 40 Z"
-        fill="url(#cGrad)"
-      />
-      <path
-        d="M 52 50 C 58 50 60 47 60 40 C 60 47 62 50 69 50 C 62 50 60 53 60 60 C 60 53 58 50 52 50 Z"
-        fill="url(#starGrad)"
-      />
+      <path d="M 68 22 A 40 40 0 1 0 68 78 L 68 60 A 22 22 0 1 1 68 40 Z" fill="url(#ccGrad)" />
+      <path d="M 52 50 C 58 50 60 47 60 40 C 60 47 62 50 69 50 C 62 50 60 53 60 60 C 60 53 58 50 52 50 Z" fill="url(#ccStar)" />
     </svg>
   );
 }
@@ -66,19 +81,20 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
 
-  // Admin State
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState(false);
-
   // Data States
   const [items, setItems] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [messages, setMessages] = useState([]);
   const [copiedUpi, setCopiedUpi] = useState('');
 
+  // Search & Filter
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('newest');
+  const [hideUnavailable, setHideUnavailable] = useState(false);
+
   // Form States
   const [chatInput, setChatInput] = useState('');
+  const [submissionLoading, setSubmissionLoading] = useState(false);
   const [submissionForm, setSubmissionForm] = useState({
     campaign_id: '',
     creator_handle: '',
@@ -93,10 +109,58 @@ export default function App() {
     title: '',
     reward_inr: '',
     total_budget: '',
+    min_views: '',
+    start_date: '',
     deadline: '',
     guidelines: '',
     assets_url: '',
   });
+
+  const isAdmin = useMemo(() => {
+    if (!user?.email) return false;
+    return user.email.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase() || Boolean(profile?.is_admin);
+  }, [user, profile]);
+
+  useEffect(() => {
+    if (activeTab === 'admin' && !isAdmin) {
+      setActiveTab('campaigns');
+    }
+  }, [activeTab, isAdmin]);
+
+  const fetchUserProfile = useCallback(async (userId) => {
+    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    if (data) {
+      setProfile(data);
+      setSubmissionForm((prev) => ({
+        ...prev,
+        creator_handle: prev.creator_handle || data.instagram_handle || '',
+        upi_id: prev.upi_id || data.saved_upi_id || '',
+      }));
+    }
+  }, []);
+
+  const fetchItems = useCallback(async () => {
+    const { data } = await supabase.from('campaigns').select('*').order('created_at', { ascending: false });
+    if (data) {
+      setItems(data);
+      if (data.length > 0 && !submissionForm.campaign_id) {
+        setSubmissionForm((prev) => ({ ...prev, campaign_id: data[0].id }));
+      }
+    }
+  }, [submissionForm.campaign_id]);
+
+  const fetchSubmissions = useCallback(async () => {
+    const { data } = await supabase
+      .from('submissions')
+      .select('*, campaigns(title, type, reward_inr, total_budget, creator_name, start_date, deadline, assets_url, min_views)')
+      .order('created_at', { ascending: false });
+    if (data) setSubmissions(data);
+  }, []);
+
+  const fetchMessages = useCallback(async () => {
+    const { data } = await supabase.from('messages').select('*').order('created_at', { ascending: true });
+    if (data) setMessages(data);
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -131,48 +195,14 @@ export default function App() {
       authListener?.subscription.unsubscribe();
       supabase.removeChannel(channel);
     };
-  }, []);
-
-  const fetchUserProfile = async (userId) => {
-    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    if (data) {
-      setProfile(data);
-      setSubmissionForm((prev) => ({
-        ...prev,
-        creator_handle: prev.creator_handle || data.instagram_handle || '',
-        upi_id: prev.upi_id || data.saved_upi_id || '',
-      }));
-    }
-  };
-
-  const fetchItems = async () => {
-    const { data } = await supabase.from('campaigns').select('*').order('created_at', { ascending: false });
-    if (data) {
-      setItems(data);
-      if (data.length > 0 && !submissionForm.campaign_id) {
-        setSubmissionForm((prev) => ({ ...prev, campaign_id: data[0].id }));
-      }
-    }
-  };
-
-  const fetchSubmissions = async () => {
-    const { data } = await supabase.from('submissions').select('*, campaigns(title, type, reward_inr)').order('created_at', { ascending: false });
-    if (data) setSubmissions(data);
-  };
-
-  const fetchMessages = async () => {
-    const { data } = await supabase.from('messages').select('*').order('created_at', { ascending: true });
-    if (data) setMessages(data);
-  };
+  }, [fetchUserProfile, fetchItems, fetchSubmissions, fetchMessages]);
 
   const handleGoogleLogin = async () => {
     setAuthLoading(true);
     setAuthError('');
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: typeof window !== 'undefined' ? window.location.origin : '',
-      },
+      options: { redirectTo: typeof window !== 'undefined' ? window.location.origin : '' },
     });
     if (error) {
       setAuthError(error.message);
@@ -189,14 +219,11 @@ export default function App() {
       const { data, error } = await supabase.auth.signUp({
         email: authEmail,
         password: authPassword,
-        options: {
-          data: { full_name: authName.trim() || 'Creator' }
-        }
+        options: { data: { full_name: authName.trim() || 'Creator' } }
       });
       if (error) {
         setAuthError(error.message);
       } else {
-        alert('Welcome to Creator Core! Account created.');
         setShowAuthModal(false);
         setUser(data.user);
       }
@@ -219,112 +246,98 @@ export default function App() {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
+    setActiveTab('campaigns');
   };
 
-  const handlePinSubmit = (e) => {
+  // Secure Server Action: Submit Proof with automated view verification
+  const handleSubmitProof = async (e) => {
     e.preventDefault();
-    if (pinInput === ADMIN_PIN) {
-      setIsAdmin(true);
-      setPinError(false);
-      setPinInput('');
-    } else {
-      setPinError(true);
+    if (!user) return setShowAuthModal(true);
+
+    if (!isValidContentUrl(submissionForm.reel_url)) {
+      return alert('Fraud Protection: Please enter a valid URL from Instagram, YouTube, or TikTok.');
     }
+
+    setSubmissionLoading(true);
+
+    const res = await submitProofAction({
+      userId: user.id,
+      campaignId: submissionForm.campaign_id,
+      creatorHandle: submissionForm.creator_handle,
+      reelUrl: submissionForm.reel_url,
+      claimedViews: submissionForm.views_claimed,
+      upiId: submissionForm.upi_id,
+    });
+
+    setSubmissionLoading(false);
+
+    if (res.error) {
+      alert(res.error);
+    } else {
+      alert('Proof validated and submitted successfully! Check progress in "My Submissions".');
+      setSubmissionForm((prev) => ({ ...prev, reel_url: '', views_claimed: '' }));
+      fetchSubmissions();
+      setActiveTab('my-submissions');
+    }
+  };
+
+  // Secure Server Action: 1-Click Instant UPI Payout
+  const handleApproveWithPayout = async (submissionId) => {
+    if (!confirm('Approve submission and trigger instant UPI payout?')) return;
+
+    const res = await approveSubmissionAction({
+      submissionId,
+      callerEmail: user?.email
+    });
+
+    if (res.error) {
+      alert('Payout Failed: ' + res.error);
+    } else {
+      alert(`Success! ₹${res.amount} sent via UPI. Reference ID: ${res.txId}`);
+      fetchSubmissions();
+    }
+  };
+
+  const handleRejectSubmission = async (submissionId) => {
+    const res = await rejectSubmissionAction({ submissionId, callerEmail: user?.email });
+    if (res.error) alert(res.error);
+    else fetchSubmissions();
+  };
+
+  const handleToggleStatus = async (id, status) => {
+    const res = await toggleListingStatusAction({ listingId: id, currentStatus: status, callerEmail: user?.email });
+    if (res.error) alert(res.error);
+    else fetchItems();
+  };
+
+  const handleDeleteListing = async (id) => {
+    if (!confirm('Delete listing and linked submissions?')) return;
+    const res = await deleteListingAction({ listingId: id, callerEmail: user?.email });
+    if (res.error) alert(res.error);
+    else { fetchItems(); fetchSubmissions(); }
   };
 
   const handleCreateItem = async (e) => {
     e.preventDefault();
-    const { error } = await supabase.from('campaigns').insert([{
+    const insertObj = {
       type: newItem.type,
       creator_name: newItem.creator_name,
       title: newItem.title,
-      reward_inr: parseInt(newItem.reward_inr) || 0,
-      total_budget: parseInt(newItem.total_budget) || 0,
+      reward_inr: parseInt(newItem.reward_inr, 10) || 0,
+      total_budget: parseInt(newItem.total_budget, 10) || 0,
+      min_views: parseInt(newItem.min_views, 10) || 0,
+      start_date: newItem.start_date || '',
       deadline: newItem.deadline || '',
       guidelines: newItem.guidelines,
       assets_url: newItem.assets_url || '',
       status: 'ACTIVE'
-    }]);
+    };
 
-    if (error) {
-      alert('Error: ' + error.message);
-    } else {
-      alert(`${newItem.type} posted successfully!`);
-      setNewItem({ 
-        type: newItem.type, 
-        creator_name: '', 
-        title: '', 
-        reward_inr: '', 
-        total_budget: '', 
-        deadline: '', 
-        guidelines: '', 
-        assets_url: '' 
-      });
+    const { error } = await supabase.from('campaigns').insert([insertObj]);
+    if (error) alert('Error creating: ' + error.message);
+    else {
+      setNewItem({ type: newItem.type, creator_name: '', title: '', reward_inr: '', total_budget: '', min_views: '', start_date: '', deadline: '', guidelines: '', assets_url: '' });
       fetchItems();
-    }
-  };
-
-  const toggleItemStatus = async (id, currentStatus) => {
-    const nextStatus = currentStatus === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
-    await supabase.from('campaigns').update({ status: nextStatus }).eq('id', id);
-    fetchItems();
-  };
-
-  const deleteItem = async (id) => {
-    if (confirm('Delete this listing and associated submissions?')) {
-      await supabase.from('campaigns').delete().eq('id', id);
-      fetchItems();
-      fetchSubmissions();
-    }
-  };
-
-  const handleSubmitProof = async (e) => {
-    e.preventDefault();
-    if (!user) {
-      setShowAuthModal(true);
-      return;
-    }
-
-    if (!submissionForm.reel_url || !submissionForm.upi_id) return alert('Fill in all required fields.');
-
-    const targetItem = items.find(i => i.id === submissionForm.campaign_id);
-    if (targetItem && targetItem.deadline && new Date(targetItem.deadline) < new Date()) {
-      return alert('This deadline has already passed.');
-    }
-
-    const { error } = await supabase.from('submissions').insert([{
-      user_id: user.id,
-      campaign_id: submissionForm.campaign_id,
-      creator_handle: submissionForm.creator_handle,
-      reel_url: submissionForm.reel_url,
-      views_claimed: parseInt(submissionForm.views_claimed) || 0,
-      upi_id: submissionForm.upi_id,
-      status: 'PENDING'
-    }]);
-
-    if (!error) {
-      await supabase.from('profiles').update({
-        instagram_handle: submissionForm.creator_handle,
-        saved_upi_id: submissionForm.upi_id
-      }).eq('id', user.id);
-
-      alert('Proof submitted! Payout will be verified and sent to your UPI.');
-      setSubmissionForm({ ...submissionForm, reel_url: '', views_claimed: '' });
-      fetchSubmissions();
-    } else {
-      alert('Error submitting: ' + error.message);
-    }
-  };
-
-  const updateSubmissionStatus = async (id, status) => {
-    await supabase.from('submissions').update({ status }).eq('id', id);
-    fetchSubmissions();
-  };
-
-  const deleteSubmission = async (id) => {
-    if (confirm('Delete this submission record?')) {
-      await supabase.from('submissions').delete().eq('id', id);
-      fetchSubmissions();
     }
   };
 
@@ -336,810 +349,838 @@ export default function App() {
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!user) {
-      setShowAuthModal(true);
-      return;
-    }
+    if (!user) return setShowAuthModal(true);
     if (!chatInput.trim()) return;
     const sender = profile?.full_name || user.user_metadata?.full_name || user.email.split('@')[0];
     await supabase.from('messages').insert([{ sender_name: sender, content: chatInput.trim() }]);
     setChatInput('');
   };
 
-  const deleteChatMessage = async (id) => {
-    await supabase.from('messages').delete().eq('id', id);
-    fetchMessages();
-  };
-
   const getBudgetStatus = (item) => {
     if (!item.total_budget || item.total_budget <= 0) return null;
     const paidAmount = submissions
       .filter(s => s.campaign_id === item.id && s.status === 'PAID')
-      .reduce((acc, s) => acc + (item.reward_inr || 0), 0);
+      .reduce((acc, s) => acc + calculatePayout(item, s.views_claimed), 0);
     const remaining = Math.max(0, item.total_budget - paidAmount);
     const percent = Math.min(100, Math.round((paidAmount / item.total_budget) * 100));
     return { paidAmount, remaining, percent, isExhausted: remaining <= 0 };
   };
+
+  const filterAndSortItems = useCallback((list) => {
+    return list.filter(item => {
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch = !q || item.title?.toLowerCase().includes(q) || item.creator_name?.toLowerCase().includes(q);
+      if (!matchesSearch) return false;
+
+      if (hideUnavailable) {
+        const isExpired = item.deadline && new Date(item.deadline) < new Date();
+        const budget = getBudgetStatus(item);
+        if (isExpired || budget?.isExhausted) return false;
+      }
+      return true;
+    }).sort((a, b) => {
+      if (sortBy === 'reward_high') return (b.reward_inr || 0) - (a.reward_inr || 0);
+      if (sortBy === 'reward_low') return (a.reward_inr || 0) - (b.reward_inr || 0);
+      if (sortBy === 'deadline') {
+        if (!a.deadline) return 1;
+        if (!b.deadline) return -1;
+        return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+      }
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    });
+  }, [searchQuery, hideUnavailable, sortBy]);
+
+  const activeCampaigns = useMemo(() => {
+    const raw = items.filter(i => (i.type === 'CAMPAIGN' || !i.type) && i.status === 'ACTIVE');
+    return filterAndSortItems(raw);
+  }, [items, filterAndSortItems]);
+
+  const activeBounties = useMemo(() => {
+    const raw = items.filter(i => i.type === 'BOUNTY' && i.status === 'ACTIVE');
+    return filterAndSortItems(raw);
+  }, [items, filterAndSortItems]);
+
+  const mySubmissions = useMemo(() => {
+    if (!user) return [];
+    return submissions.filter(s => s.user_id === user.id);
+  }, [submissions, user]);
+
+  const myEarned = useMemo(() => {
+    return mySubmissions
+      .filter(s => s.status === 'PAID')
+      .reduce((acc, s) => acc + calculatePayout(s.campaigns, s.views_claimed), 0);
+  }, [mySubmissions]);
+
+  const myPendingCount = useMemo(() => {
+    return mySubmissions.filter(s => s.status === 'PENDING').length;
+  }, [mySubmissions]);
+
+  const myJoinedCampaigns = useMemo(() => {
+    if (!user || !items.length) return [];
+    const joinedIds = new Set(mySubmissions.map(s => s.campaign_id));
+    return items
+      .filter(item => joinedIds.has(item.id))
+      .map(item => {
+        const itemSubs = mySubmissions.filter(s => s.campaign_id === item.id);
+        const totalViews = itemSubs.reduce((acc, s) => acc + (Number(s.views_claimed) || 0), 0);
+        const totalEarned = itemSubs
+          .filter(s => s.status === 'PAID')
+          .reduce((acc, s) => acc + calculatePayout(item, s.views_claimed), 0);
+        const pendingCount = itemSubs.filter(s => s.status === 'PENDING').length;
+        const paidCount = itemSubs.filter(s => s.status === 'PAID').length;
+        return {
+          ...item,
+          clipsSubmitted: itemSubs.length,
+          totalViews,
+          totalEarned,
+          pendingCount,
+          paidCount
+        };
+      });
+  }, [items, mySubmissions, user]);
 
   const leaderboard = useMemo(() => {
     const creatorsMap = {};
     submissions.forEach(sub => {
       const handle = (sub.creator_handle || 'anonymous').trim().toLowerCase();
       if (!creatorsMap[handle]) {
-        creatorsMap[handle] = {
-          handle: sub.creator_handle,
-          totalEarned: 0,
-          totalViews: 0,
-          paidSubmissions: 0,
-        };
+        creatorsMap[handle] = { handle: sub.creator_handle, totalEarned: 0, totalViews: 0, paidSubmissions: 0 };
       }
       if (sub.status === 'PAID') {
-        const reward = sub.campaigns?.reward_inr || 0;
-        creatorsMap[handle].totalEarned += reward;
-        creatorsMap[handle].totalViews += (sub.views_claimed || 0);
+        creatorsMap[handle].totalEarned += calculatePayout(sub.campaigns, sub.views_claimed);
+        creatorsMap[handle].totalViews += (Number(sub.views_claimed) || 0);
         creatorsMap[handle].paidSubmissions += 1;
       }
     });
-
     return Object.values(creatorsMap)
       .filter(c => c.totalEarned > 0 || c.totalViews > 0)
-      .sort((a, b) => b.totalEarned - a.totalEarned || b.totalViews - a.totalViews);
+      .sort((a, b) => b.totalEarned - a.totalEarned);
   }, [submissions]);
 
-  const activeCampaigns = items.filter(i => (i.type === 'CAMPAIGN' || !i.type) && i.status === 'ACTIVE');
-  const activeBounties = items.filter(i => i.type === 'BOUNTY' && i.status === 'ACTIVE');
+  const selectedSubmitItem = items.find(i => i.id === submissionForm.campaign_id);
+  const estimatedPayout = selectedSubmitItem ? calculatePayout(selectedSubmitItem, submissionForm.views_claimed) : 0;
+
+  const navigationTabs = useMemo(() => {
+    const baseTabs = [
+      { id: 'campaigns', label: 'Campaigns (PPV)', icon: Briefcase },
+      { id: 'bounties', label: 'Bounties', icon: CheckSquare },
+      { id: 'my-campaigns', label: 'My Campaigns', icon: Building2, count: user ? myJoinedCampaigns.length : null },
+      { id: 'my-submissions', label: 'My Submissions', icon: Clock, count: user ? mySubmissions.length : null },
+      { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
+      { id: 'submit', label: 'Submit Proof', icon: CheckCircle },
+      { id: 'chat', label: 'Creator Hub', icon: MessageSquare },
+    ];
+    if (isAdmin) baseTabs.push({ id: 'admin', label: 'Admin Desk', icon: Shield });
+    return baseTabs;
+  }, [user, myJoinedCampaigns.length, mySubmissions.length, isAdmin]);
 
   return (
-    <div className="min-h-screen bg-[#08080F] text-[#F4F4F6] flex flex-col font-sans">
+    <div style={{ backgroundColor: '#08080C', minHeight: '100vh', color: '#F4F4F6', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <header className="border-b border-[#1F1F26] bg-[#08080F]/90 backdrop-blur px-4 sm:px-6 py-3.5 sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <CreatorCoreLogo size={34} />
+      <header style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.07)', backgroundColor: 'rgba(12, 12, 16, 0.75)', backdropFilter: 'blur(16px)', position: 'sticky', top: 0, zIndex: 50, padding: '12px 24px' }}>
+        <div style={{ maxWidth: '1120px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <CreatorCoreLogo size={32} />
             <div>
-              <div className="font-extrabold text-lg sm:text-xl tracking-tight leading-none text-white">
-                Creator Core
-              </div>
-              <div className="text-[9px] uppercase tracking-widest text-[#887DFF] font-semibold mt-1">
-                Create / Connect / Grow
-              </div>
+              <div style={{ fontWeight: 800, fontSize: '18px', letterSpacing: '-0.02em', color: '#FFFFFF', lineHeight: 1.1 }}>Creator Core</div>
+              <div style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.14em', color: '#887DFF', fontWeight: 700, marginTop: '3px' }}>Automated Payouts & Verification</div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {user ? (
-              <div className="flex items-center gap-2 bg-[#1F1F26] border border-[#2D2D3A] px-3 py-1.5 rounded-xl text-xs">
-                <User className="w-3.5 h-3.5 text-[#887DFF]" />
-                <span className="font-semibold text-white">
-                  {profile?.full_name || user.user_metadata?.full_name || user.email.split('@')[0]}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '6px 12px', fontSize: '13px' }}>
+                <User size={14} color={isAdmin ? "#C988FF" : "#887DFF"} />
+                <span style={{ fontWeight: 600, color: '#F4F4F6' }}>
+                  {profile?.full_name || user.email.split('@')[0]}
+                  {isAdmin && <span style={{ marginLeft: '6px', fontSize: '10px', fontWeight: 800, color: '#C988FF', backgroundColor: 'rgba(201, 136, 255, 0.15)', padding: '2px 6px', borderRadius: '4px' }}>ADMIN</span>}
                 </span>
-                <button 
-                  onClick={handleSignOut} 
-                  title="Sign Out" 
-                  className="ml-2 text-neutral-400 hover:text-red-400"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                </button>
+                <button onClick={handleSignOut} style={{ marginLeft: '6px', color: '#8E8E9F', background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}><LogOut size={14} /></button>
               </div>
             ) : (
-              <button
-                onClick={() => { setAuthMode('signin'); setShowAuthModal(true); }}
-                className="flex items-center gap-1.5 bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-semibold px-3.5 py-1.5 rounded-xl text-xs shadow-md shadow-[#887DFF]/20 hover:opacity-90 transition-all"
-              >
-                <LogIn className="w-3.5 h-3.5" /> Sign In / Join
-              </button>
-            )}
-
-            {isAdmin && (
-              <button
-                onClick={() => setIsAdmin(false)}
-                className="flex items-center gap-1 text-xs bg-red-950/80 text-red-400 border border-red-800 px-2.5 py-1.5 rounded-xl hover:bg-red-900"
-              >
-                <Lock className="w-3 h-3" /> Lock
+              <button onClick={() => { setAuthMode('signin'); setShowAuthModal(true); }} style={{ background: 'linear-gradient(135deg, #887DFF 0%, #C988FF 100%)', color: '#FFFFFF', fontWeight: 700, fontSize: '13px', borderRadius: '12px', padding: '8px 16px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <LogIn size={14} /> Sign In / Join
               </button>
             )}
           </div>
         </div>
       </header>
 
-      {/* Navigation Tabs */}
-      <div className="border-b border-[#1F1F26] bg-[#0E0E17]">
-        <div className="max-w-6xl mx-auto flex gap-2 sm:gap-4 px-4 overflow-x-auto">
-          {[
-            { id: 'campaigns', label: 'Campaigns', icon: Briefcase },
-            { id: 'bounties', label: 'Bounties', icon: Sparkles },
-            { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
-            { id: 'submit', label: 'Submit Proof', icon: CheckCircle },
-            { id: 'chat', label: 'Creator Hub', icon: MessageSquare },
-            { id: 'admin', label: 'Admin Desk', icon: Shield },
-          ].map((tab) => {
+      {/* Nav Tabs */}
+      <div style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)', backgroundColor: '#0D0D12', padding: '8px 16px' }}>
+        <div style={{ maxWidth: '1120px', margin: '0 auto', display: 'flex', gap: '6px', overflowX: 'auto', scrollbarWidth: 'none' }}>
+          {navigationTabs.map((tab) => {
             const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
+            const active = activeTab === tab.id;
             return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 py-3 px-2 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-all ${
-                  isActive 
-                    ? 'border-[#887DFF] text-[#887DFF]' 
-                    : 'border-transparent text-neutral-400 hover:text-white'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 14px', borderRadius: '10px', fontSize: '13px', fontWeight: active ? 700 : 500, color: active ? '#FFFFFF' : '#8E8E9F', backgroundColor: active ? 'rgba(136, 125, 255, 0.15)' : 'transparent', border: active ? '1px solid rgba(136, 125, 255, 0.3)' : '1px solid transparent', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+                <Icon size={15} color={active ? '#C988FF' : '#8E8E9F'} />
                 {tab.label}
+                {tab.count !== null && <span style={{ fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: '999px', backgroundColor: active ? '#887DFF' : 'rgba(255, 255, 255, 0.1)', color: '#FFFFFF' }}>{tab.count}</span>}
               </button>
             );
           })}
         </div>
       </div>
 
-      <main className="flex-1 p-4 sm:p-6 max-w-6xl w-full mx-auto">
-        {/* ================= TAB 1: CAMPAIGNS ================= */}
-        {activeTab === 'campaigns' && (
-          <div className="space-y-4">
-            <div className="flex justify-between items-center mb-2">
-              <div>
-                <h2 className="text-xl font-bold text-white">Active Campaigns</h2>
-                <p className="text-xs text-neutral-400">Collaborate with brands and earn fixed payouts</p>
-              </div>
-              <span className="text-xs text-[#887DFF] bg-[#887DFF]/10 border border-[#887DFF]/20 px-3 py-1 rounded-full">
-                {activeCampaigns.length} open
-              </span>
+      <main style={{ flex: 1, maxWidth: '1120px', width: '100%', margin: '0 auto', padding: '32px 20px' }}>
+        
+        {/* Search Bar */}
+        {(activeTab === 'campaigns' || activeTab === 'bounties') && (
+          <div style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '16px', padding: '14px 18px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 280px', backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', padding: '8px 12px' }}>
+              <Search size={16} color="#8E8E9F" />
+              <input placeholder="Search by brand, title, or keywords..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ background: 'none', border: 'none', color: '#FFFFFF', fontSize: '13px', width: '100%', outline: 'none' }} />
+              {searchQuery && <button onClick={() => setSearchQuery('')} style={{ background: 'none', border: 'none', color: '#8E8E9F', cursor: 'pointer' }}><X size={14} /></button>}
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              {activeCampaigns.length === 0 ? (
-                <div className="col-span-2 text-center py-16 text-neutral-500 bg-[#13131A] border border-[#1F1F26] rounded-2xl">
-                  No active campaigns yet. Switch to Admin Desk to create one!
-                </div>
-              ) : (
-                activeCampaigns.map((c) => {
-                  const budgetInfo = getBudgetStatus(c);
-                  const isExpired = c.deadline && new Date(c.deadline) < new Date();
-
-                  return (
-                    <div key={c.id} className="bg-[#13131A] border border-[#1F1F26] p-5 rounded-2xl flex flex-col justify-between hover:border-[#887DFF]/30 transition-all">
-                      <div>
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-xs font-semibold px-2.5 py-1 bg-[#887DFF]/10 text-[#887DFF] border border-[#887DFF]/20 rounded-full">
-                            Campaign • @{c.creator_name}
-                          </span>
-                          <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#887DFF] to-[#C988FF] font-extrabold text-xl">
-                            ₹{c.reward_inr}
-                          </span>
-                        </div>
-                        <h3 className="font-bold text-lg text-white mt-1">{c.title}</h3>
-                        
-                        <div className="flex flex-wrap items-center gap-2.5 my-3 text-xs text-neutral-400">
-                          {c.deadline && (
-                            <div className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border ${
-                              isExpired ? 'bg-red-950/60 text-red-400 border-red-800' : 'bg-[#1F1F26] border-[#2D2D3A] text-neutral-300'
-                            }`}>
-                              <Clock className="w-3 h-3" />
-                              {isExpired ? 'Ended' : `Ends: ${c.deadline}`}
-                            </div>
-                          )}
-                          {budgetInfo && (
-                            <div className="flex items-center gap-1 bg-[#1F1F26] border border-[#2D2D3A] px-2 py-0.5 rounded-lg text-neutral-300">
-                              <DollarSign className="w-3 h-3 text-[#887DFF]" />
-                              Pool: ₹{budgetInfo.remaining} / ₹{c.total_budget}
-                            </div>
-                          )}
-                        </div>
-
-                        {budgetInfo && (
-                          <div className="w-full bg-[#1F1F26] h-1.5 rounded-full overflow-hidden mb-3">
-                            <div className="bg-gradient-to-r from-[#887DFF] to-[#C988FF] h-full transition-all" style={{ width: `${budgetInfo.percent}%` }} />
-                          </div>
-                        )}
-
-                        <p className="text-sm text-neutral-300 mt-2 whitespace-pre-line leading-relaxed">{c.guidelines}</p>
-                        
-                        {c.assets_url && (
-                          <a
-                            href={c.assets_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1.5 text-xs text-[#887DFF] hover:text-[#C988FF] mt-3 bg-[#1F1F26] px-3 py-1.5 rounded-lg border border-[#2D2D3A]"
-                          >
-                            <LinkIcon className="w-3.5 h-3.5" /> Campaign Assets & Brief
-                          </a>
-                        )}
-                      </div>
-                      <button
-                        disabled={isExpired || budgetInfo?.isExhausted}
-                        onClick={() => {
-                          setSubmissionForm((prev) => ({ ...prev, campaign_id: c.id }));
-                          setActiveTab('submit');
-                        }}
-                        className={`mt-5 w-full font-semibold py-2.5 rounded-xl text-sm transition-all ${
-                          isExpired || budgetInfo?.isExhausted
-                            ? 'bg-[#1F1F26] text-neutral-500 cursor-not-allowed'
-                            : 'bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white hover:opacity-90 shadow-md shadow-[#887DFF]/20'
-                        }`}
-                      >
-                        {isExpired ? 'Campaign Closed' : budgetInfo?.isExhausted ? 'Budget Exhausted' : 'Submit Campaign Work'}
-                      </button>
-                    </div>
-                  );
-                })
-              )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#8E8E9F' }}>
+                <SlidersHorizontal size={14} />
+                <span>Sort by:</span>
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', padding: '6px 10px', color: '#FFFFFF', fontSize: '12px' }}>
+                  <option value="newest">Newest</option>
+                  <option value="reward_high">Highest Reward</option>
+                  <option value="reward_low">Lowest Reward</option>
+                  <option value="deadline">Ending Soon</option>
+                </select>
+              </div>
+              <button onClick={() => setHideUnavailable(!hideUnavailable)} style={{ fontSize: '12px', fontWeight: 600, padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', border: hideUnavailable ? '1px solid rgba(136, 125, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)', background: hideUnavailable ? 'rgba(136, 125, 255, 0.15)' : 'none', color: hideUnavailable ? '#C988FF' : '#8E8E9F' }}>
+                {hideUnavailable ? '✓ Available Only' : 'Hide Full / Expired'}
+              </button>
             </div>
           </div>
         )}
 
-        {/* ================= TAB 2: BOUNTIES ================= */}
-        {activeTab === 'bounties' && (
-          <div className="space-y-4">
-            <div className="flex justify-between items-center mb-2">
-              <div>
-                <h2 className="text-xl font-bold text-white">Active Reel Bounties</h2>
-                <p className="text-xs text-neutral-400">Compete with video edits and earn per submission</p>
-              </div>
-              <span className="text-xs text-[#C988FF] bg-[#C988FF]/10 border border-[#C988FF]/20 px-3 py-1 rounded-full">
-                {activeBounties.length} open
-              </span>
+        {/* TAB: MY CAMPAIGNS (Restored) */}
+        {activeTab === 'my-campaigns' && (
+          <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+            <div style={{ marginBottom: '24px' }}>
+              <h2 style={{ fontSize: '24px', fontWeight: 800, margin: 0, color: '#FFFFFF' }}>My Joined Campaigns & Brands</h2>
+              <p style={{ fontSize: '13px', color: '#8E8E9F', margin: '4px 0 0 0' }}>Programs you are actively delivering for</p>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              {activeBounties.length === 0 ? (
-                <div className="col-span-2 text-center py-16 text-neutral-500 bg-[#13131A] border border-[#1F1F26] rounded-2xl">
-                  No bounties open right now. Publish one from the Admin Desk!
-                </div>
-              ) : (
-                activeBounties.map((b) => {
-                  const budgetInfo = getBudgetStatus(b);
-                  const isExpired = b.deadline && new Date(b.deadline) < new Date();
-
-                  return (
-                    <div key={b.id} className="bg-[#13131A] border border-[#1F1F26] p-5 rounded-2xl flex flex-col justify-between hover:border-[#C988FF]/30 transition-all">
-                      <div>
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-xs font-semibold px-2.5 py-1 bg-[#C988FF]/10 text-[#C988FF] border border-[#C988FF]/20 rounded-full">
-                            Bounty • @{b.creator_name}
-                          </span>
-                          <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#887DFF] to-[#C988FF] font-extrabold text-xl">
-                            ₹{b.reward_inr}
-                          </span>
-                        </div>
-                        <h3 className="font-bold text-lg text-white mt-1">{b.title}</h3>
-                        
-                        <div className="flex flex-wrap items-center gap-2.5 my-3 text-xs text-neutral-400">
-                          {b.deadline && (
-                            <div className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border ${
-                              isExpired ? 'bg-red-950/60 text-red-400 border-red-800' : 'bg-[#1F1F26] border-[#2D2D3A] text-neutral-300'
-                            }`}>
-                              <Clock className="w-3 h-3" />
-                              {isExpired ? 'Ended' : `Ends: ${b.deadline}`}
-                            </div>
-                          )}
-                          {budgetInfo && (
-                            <div className="flex items-center gap-1 bg-[#1F1F26] border border-[#2D2D3A] px-2 py-0.5 rounded-lg text-neutral-300">
-                              <DollarSign className="w-3 h-3 text-[#C988FF]" />
-                              Pool: ₹{budgetInfo.remaining} / ₹{b.total_budget}
-                            </div>
-                          )}
-                        </div>
-
-                        {budgetInfo && (
-                          <div className="w-full bg-[#1F1F26] h-1.5 rounded-full overflow-hidden mb-3">
-                            <div className="bg-gradient-to-r from-[#887DFF] to-[#C988FF] h-full transition-all" style={{ width: `${budgetInfo.percent}%` }} />
-                          </div>
-                        )}
-
-                        <p className="text-sm text-neutral-300 mt-2 whitespace-pre-line leading-relaxed">{b.guidelines}</p>
-                        
-                        {b.assets_url && (
-                          <a
-                            href={b.assets_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1.5 text-xs text-[#C988FF] hover:underline mt-3 bg-[#1F1F26] px-3 py-1.5 rounded-lg border border-[#2D2D3A]"
-                          >
-                            <LinkIcon className="w-3.5 h-3.5" /> Footage & Audio Assets
-                          </a>
-                        )}
-                      </div>
-                      <button
-                        disabled={isExpired || budgetInfo?.isExhausted}
-                        onClick={() => {
-                          setSubmissionForm((prev) => ({ ...prev, campaign_id: b.id }));
-                          setActiveTab('submit');
-                        }}
-                        className={`mt-5 w-full font-semibold py-2.5 rounded-xl text-sm transition-all ${
-                          isExpired || budgetInfo?.isExhausted
-                            ? 'bg-[#1F1F26] text-neutral-500 cursor-not-allowed'
-                            : 'bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white hover:opacity-90 shadow-md shadow-[#887DFF]/20'
-                        }`}
-                      >
-                        {isExpired ? 'Bounty Closed' : budgetInfo?.isExhausted ? 'Budget Exhausted' : 'Submit Bounty Clip'}
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ================= TAB 3: LEADERBOARD ================= */}
-        {activeTab === 'leaderboard' && (
-          <div className="max-w-3xl mx-auto space-y-6">
-            <div className="text-center">
-              <div className="inline-flex items-center justify-center w-14 h-14 bg-[#887DFF]/10 border border-[#887DFF]/20 rounded-2xl mb-2">
-                <CreatorCoreLogo size={32} />
-              </div>
-              <h2 className="text-2xl font-extrabold text-white">Creator Hall of Fame</h2>
-              <p className="text-xs text-neutral-400">Top video editors and creators ranked by paid earnings</p>
-            </div>
-
-            {leaderboard.length === 0 ? (
-              <div className="text-center py-16 text-neutral-500 bg-[#13131A] border border-[#1F1F26] rounded-2xl">
-                No payouts completed yet. Approved creators will appear here!
-              </div>
-            ) : (
-              <div className="bg-[#13131A] border border-[#1F1F26] rounded-2xl overflow-hidden shadow-xl">
-                <table className="w-full text-left text-sm">
-                  <thead className="text-xs uppercase text-neutral-400 bg-[#1F1F26]/60 border-b border-[#1F1F26]">
-                    <tr>
-                      <th className="py-3 px-4">Rank</th>
-                      <th>Creator</th>
-                      <th>Bounties Won</th>
-                      <th>Total Views</th>
-                      <th className="text-right px-4">Total Earned</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y border-[#1F1F26]">
-                    {leaderboard.map((creator, index) => (
-                      <tr key={creator.handle} className="hover:bg-[#1F1F26]/40 transition-colors">
-                        <td className="py-3.5 px-4 font-bold">
-                          {index === 0 ? '🥇 1st' : index === 1 ? '🥈 2nd' : index === 2 ? '🥉 3rd' : `#${index + 1}`}
-                        </td>
-                        <td className="font-semibold text-white">
-                          <span className="flex items-center gap-1.5">
-                            {creator.handle}
-                            {index === 0 && <Sparkles className="w-4 h-4 text-[#887DFF]" />}
-                          </span>
-                        </td>
-                        <td className="text-neutral-400">{creator.paidSubmissions}</td>
-                        <td className="text-neutral-400">{creator.totalViews.toLocaleString()}</td>
-                        <td className="text-right px-4 font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-[#887DFF] to-[#C988FF]">
-                          ₹{creator.totalEarned.toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ================= TAB 4: SUBMIT PROOF ================= */}
-        {activeTab === 'submit' && (
-          <div className="max-w-lg mx-auto bg-[#13131A] border border-[#1F1F26] p-6 rounded-2xl shadow-xl">
-            <h2 className="text-lg font-bold mb-1 text-white">Submit Proof of Work</h2>
-            <p className="text-xs text-neutral-400 mb-5">Link your published content to claim verified UPI payout.</p>
-            
             {!user ? (
-              <div className="text-center py-8 bg-[#1F1F26]/40 border border-[#2D2D3A] rounded-xl p-6">
-                <div className="flex justify-center mb-3">
-                  <CreatorCoreLogo size={48} />
-                </div>
-                <h3 className="font-bold text-white mb-1">Sign In Required</h3>
-                <p className="text-xs text-neutral-400 mb-4">Create an account or sign in to link your UPI and track submissions.</p>
-                <button
-                  onClick={() => setShowAuthModal(true)}
-                  className="bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-bold py-2.5 px-6 rounded-xl text-sm shadow-md shadow-[#887DFF]/20 hover:opacity-90 transition-all"
-                >
+              <div style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '24px', padding: '48px 24px', textAlign: 'center' }}>
+                <Building2 size={44} color="#887DFF" style={{ margin: '0 auto 14px auto' }} />
+                <h3 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 6px 0', color: '#FFFFFF' }}>Sign in to view your joined programs</h3>
+                <p style={{ fontSize: '13px', color: '#8E8E9F', margin: '0 0 20px 0' }}>Track campaigns, bounties completed, and earnings per brand.</p>
+                <button onClick={() => setShowAuthModal(true)} style={{ background: 'linear-gradient(135deg, #887DFF 0%, #C988FF 100%)', color: '#FFFFFF', fontWeight: 700, fontSize: '13px', padding: '11px 24px', borderRadius: '12px', border: 'none', cursor: 'pointer' }}>
                   Sign In or Create Account
                 </button>
               </div>
             ) : (
-              <form onSubmit={handleSubmitProof} className="space-y-4">
-                <div>
-                  <label className="text-xs text-neutral-400 font-medium">Select Listing</label>
-                  <select
-                    value={submissionForm.campaign_id}
-                    onChange={(e) => setSubmissionForm({ ...submissionForm, campaign_id: e.target.value })}
-                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-neutral-200 outline-none focus:border-[#887DFF]"
-                  >
-                    {items.filter(i => i.status === 'ACTIVE').map((i) => (
-                      <option key={i.id} value={i.id}>
-                        [{i.type === 'BOUNTY' ? 'Bounty' : 'Campaign'}] {i.title} (₹{i.reward_inr})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-neutral-400 font-medium">Your Social Handle</label>
-                  <input
-                    required
-                    placeholder="@your_handle"
-                    value={submissionForm.creator_handle}
-                    onChange={(e) => setSubmissionForm({ ...submissionForm, creator_handle: e.target.value })}
-                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-neutral-400 font-medium">Content URL (Instagram Reel / Shorts)</label>
-                  <input
-                    required
-                    placeholder="https://www.instagram.com/reel/..."
-                    value={submissionForm.reel_url}
-                    onChange={(e) => setSubmissionForm({ ...submissionForm, reel_url: e.target.value })}
-                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-neutral-400 font-medium">Current View Count</label>
-                  <input
-                    required
-                    type="number"
-                    placeholder="e.g. 25000"
-                    value={submissionForm.views_claimed}
-                    onChange={(e) => setSubmissionForm({ ...submissionForm, views_claimed: e.target.value })}
-                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-neutral-400 font-medium">UPI ID (For Direct Payout)</label>
-                  <input
-                    required
-                    placeholder="name@okhdfcbank or 9876543210@paytm"
-                    value={submissionForm.upi_id}
-                    onChange={(e) => setSubmissionForm({ ...submissionForm, upi_id: e.target.value })}
-                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                  />
-                </div>
-                <button 
-                  type="submit" 
-                  className="w-full bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-bold py-2.5 rounded-xl text-sm shadow-md shadow-[#887DFF]/20 hover:opacity-90 transition-all"
-                >
-                  Submit for Verification
-                </button>
-              </form>
-            )}
-          </div>
-        )}
-
-        {/* ================= TAB 5: COMMUNITY CHAT ================= */}
-        {activeTab === 'chat' && (
-          <div className="flex flex-col h-[550px] bg-[#13131A] border border-[#1F1F26] rounded-2xl overflow-hidden shadow-xl">
-            <div className="p-3.5 border-b border-[#1F1F26] bg-[#1F1F26]/40 flex justify-between items-center">
-              <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                <MessageSquare className="w-3.5 h-3.5 text-[#887DFF]" /> Creator Core Hub
-              </span>
-              {isAdmin && (
-                <span className="text-[10px] bg-[#887DFF]/20 text-[#C988FF] px-2 py-0.5 rounded-lg border border-[#887DFF]/30">
-                  Admin Active
-                </span>
-              )}
-            </div>
-            <div className="flex-1 p-4 overflow-y-auto space-y-2.5">
-              {messages.length === 0 ? (
-                <p className="text-neutral-500 text-sm text-center mt-20">No messages yet. Say hello!</p>
-              ) : (
-                messages.map((m) => (
-                  <div key={m.id} className="text-sm bg-[#1F1F26]/60 border border-[#2D2D3A] p-2.5 rounded-xl flex justify-between items-start group">
-                    <div>
-                      <span className="font-bold text-[#887DFF] text-xs">{m.sender_name}: </span>
-                      <span className="text-neutral-200">{m.content}</span>
-                    </div>
-                    {isAdmin && (
-                      <button
-                        onClick={() => deleteChatMessage(m.id)}
-                        className="text-neutral-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity ml-2"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+                  <div style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '18px', padding: '18px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#8E8E9F', textTransform: 'uppercase' }}>Brands Joined</div>
+                    <div style={{ fontSize: '28px', fontWeight: 800, color: '#FFFFFF', marginTop: '6px' }}>{myJoinedCampaigns.length}</div>
                   </div>
-                ))
-              )}
-            </div>
-            {user ? (
-              <form onSubmit={handleSendMessage} className="p-3 bg-[#13131A] border-t border-[#1F1F26] flex gap-2">
-                <input
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Discuss hooks, video ideas, or collab..."
-                  className="flex-1 bg-[#1F1F26] border border-[#2D2D3A] px-3.5 py-2 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                />
-                <button type="submit" className="bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white px-4 py-2 rounded-xl font-medium hover:opacity-90">
-                  <Send className="w-4 h-4" />
-                </button>
-              </form>
-            ) : (
-              <div className="p-3 bg-[#13131A] border-t border-[#1F1F26] text-center">
-                <button
-                  onClick={() => setShowAuthModal(true)}
-                  className="text-xs text-[#887DFF] hover:underline font-semibold"
-                >
-                  Sign in to join the conversation
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ================= TAB 6: ADMIN DASHBOARD ================= */}
-        {activeTab === 'admin' && (
-          <div>
-            {!isAdmin ? (
-              <div className="max-w-sm mx-auto bg-[#13131A] border border-[#1F1F26] p-6 rounded-2xl text-center mt-12 shadow-2xl">
-                <div className="w-12 h-12 bg-[#887DFF]/10 border border-[#887DFF]/20 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                  <Shield className="w-6 h-6 text-[#887DFF]" />
+                  <div style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '18px', padding: '18px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#C988FF', textTransform: 'uppercase' }}>Total Views Made</div>
+                    <div style={{ fontSize: '28px', fontWeight: 800, color: '#C988FF', marginTop: '6px' }}>{myJoinedCampaigns.reduce((acc, c) => acc + c.totalViews, 0).toLocaleString()}</div>
+                  </div>
+                  <div style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '18px', padding: '18px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#4ADE80', textTransform: 'uppercase' }}>Total Earned Across Brands</div>
+                    <div style={{ fontSize: '28px', fontWeight: 800, color: '#4ADE80', marginTop: '6px', fontFamily: 'monospace' }}>₹{myEarned.toLocaleString()}</div>
+                  </div>
                 </div>
-                <h3 className="font-bold text-lg mb-1 text-white">Admin Desk</h3>
-                <p className="text-xs text-neutral-400 mb-4">Enter secret PIN to manage listings and UPI payouts.</p>
-                <form onSubmit={handlePinSubmit} className="space-y-3">
-                  <input
-                    type="password"
-                    maxLength={8}
-                    placeholder="PIN"
-                    value={pinInput}
-                    onChange={(e) => setPinInput(e.target.value)}
-                    className="w-full text-center bg-[#1F1F26] border border-[#2D2D3A] py-2 rounded-xl text-lg tracking-widest text-white outline-none focus:border-[#887DFF]"
-                  />
-                  {pinError && <p className="text-xs text-red-400">Incorrect PIN.</p>}
-                  <button 
-                    type="submit" 
-                    className="w-full bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-bold py-2 rounded-xl text-sm hover:opacity-90 shadow-md shadow-[#887DFF]/20"
-                  >
-                    Unlock Desk
-                  </button>
-                </form>
-              </div>
-            ) : (
-              <div className="space-y-8">
-                {/* 1. Post New Listing */}
-                <div className="bg-[#13131A] border border-[#1F1F26] p-5 rounded-2xl shadow-lg">
-                  <h3 className="font-bold text-base mb-3 flex items-center gap-2 text-white">
-                    <PlusCircle className="w-5 h-5 text-[#887DFF]" /> Create New Listing
-                  </h3>
-                  
-                  <div className="flex gap-2 mb-4">
-                    <button
-                      type="button"
-                      onClick={() => setNewItem({ ...newItem, type: 'CAMPAIGN' })}
-                      className={`flex-1 py-2 rounded-xl font-bold text-xs border transition-all ${
-                        newItem.type === 'CAMPAIGN' 
-                          ? 'bg-[#887DFF] text-white border-[#887DFF]' 
-                          : 'bg-[#1F1F26] text-neutral-400 border-[#2D2D3A] hover:text-white'
-                      }`}
-                    >
-                      Post as Campaign
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setNewItem({ ...newItem, type: 'BOUNTY' })}
-                      className={`flex-1 py-2 rounded-xl font-bold text-xs border transition-all ${
-                        newItem.type === 'BOUNTY' 
-                          ? 'bg-[#C988FF] text-white border-[#C988FF]' 
-                          : 'bg-[#1F1F26] text-neutral-400 border-[#2D2D3A] hover:text-white'
-                      }`}
-                    >
-                      Post as Bounty
+
+                {myJoinedCampaigns.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '60px 20px', backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '20px', color: '#8E8E9F' }}>
+                    <Building2 size={36} color="#8E8E9F" style={{ margin: '0 auto 12px auto' }} />
+                    <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#FFFFFF', margin: '0 0 6px 0' }}>No Joined Programs Yet</h3>
+                    <p style={{ fontSize: '13px', margin: '0 0 16px 0' }}>Submit proof to any active campaign or bounty to track progress.</p>
+                    <button onClick={() => setActiveTab('campaigns')} style={{ background: 'linear-gradient(135deg, #887DFF 0%, #C988FF 100%)', color: '#FFFFFF', fontWeight: 700, fontSize: '13px', padding: '9px 18px', borderRadius: '10px', border: 'none', cursor: 'pointer' }}>
+                      Explore Programs
                     </button>
                   </div>
-
-                  <form onSubmit={handleCreateItem} className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <input
-                      required
-                      placeholder="Brand or Host Handle (e.g. FitRaj)"
-                      value={newItem.creator_name}
-                      onChange={(e) => setNewItem({ ...newItem, creator_name: e.target.value })}
-                      className="bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                    />
-                    <input
-                      required
-                      type="number"
-                      placeholder="Reward per Winner in ₹ (e.g. 1000)"
-                      value={newItem.reward_inr}
-                      onChange={(e) => setNewItem({ ...newItem, reward_inr: e.target.value })}
-                      className="bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Total Pool Budget in ₹ (Optional, e.g. 10000)"
-                      value={newItem.total_budget}
-                      onChange={(e) => setNewItem({ ...newItem, total_budget: e.target.value })}
-                      className="bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                    />
-                    <input
-                      type="date"
-                      value={newItem.deadline}
-                      onChange={(e) => setNewItem({ ...newItem, deadline: e.target.value })}
-                      className="bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                    />
-                    <input
-                      required
-                      placeholder="Title (e.g. 30s Hook Video for Nutrition Brand)"
-                      value={newItem.title}
-                      onChange={(e) => setNewItem({ ...newItem, title: e.target.value })}
-                      className="md:col-span-2 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                    />
-                    <input
-                      placeholder="Asset / Drive Link (Logos, raw clips, reference files)"
-                      value={newItem.assets_url}
-                      onChange={(e) => setNewItem({ ...newItem, assets_url: e.target.value })}
-                      className="md:col-span-2 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                    />
-                    <textarea
-                      required
-                      placeholder="Guidelines, requirements, and minimum view milestones..."
-                      value={newItem.guidelines}
-                      onChange={(e) => setNewItem({ ...newItem, guidelines: e.target.value })}
-                      className="md:col-span-2 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                      rows={3}
-                    />
-                    <button 
-                      type="submit" 
-                      className="md:col-span-2 py-2.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-[#887DFF] to-[#C988FF] hover:opacity-90 shadow-md shadow-[#887DFF]/20 transition-all"
-                    >
-                      Publish Listing
-                    </button>
-                  </form>
-                </div>
-
-                {/* 2. Manage Listings */}
-                <div className="bg-[#13131A] border border-[#1F1F26] p-5 rounded-2xl shadow-lg">
-                  <h3 className="font-bold text-base mb-3 text-white">Active Listings Management</h3>
-                  <div className="space-y-2">
-                    {items.map((it) => (
-                      <div key={it.id} className="bg-[#1F1F26]/70 border border-[#2D2D3A] p-3 rounded-xl flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: '16px' }}>
+                    {myJoinedCampaigns.map((c) => (
+                      <div key={c.id} style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '20px', padding: '22px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                         <div>
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${
-                              it.type === 'BOUNTY' ? 'bg-[#C988FF]/20 text-[#C988FF] border-[#C988FF]/30' : 'bg-[#887DFF]/20 text-[#887DFF] border-[#887DFF]/30'
-                            }`}>
-                              {it.type || 'CAMPAIGN'}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 700, backgroundColor: c.type === 'BOUNTY' ? 'rgba(201, 136, 255, 0.15)' : 'rgba(136, 125, 255, 0.15)', color: c.type === 'BOUNTY' ? '#C988FF' : '#887DFF', padding: '3px 10px', borderRadius: '999px' }}>
+                              {c.type === 'BOUNTY' ? 'Task Bounty' : 'PPV Campaign'} • @{c.creator_name}
                             </span>
-                            <span className="font-bold text-sm text-white">{it.title}</span>
-                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${it.status === 'ACTIVE' ? 'bg-emerald-950 text-emerald-400' : 'bg-[#2D2D3A] text-neutral-400'}`}>
-                              {it.status}
-                            </span>
+                            <span style={{ fontSize: '16px', fontWeight: 800, color: '#4ADE80', fontFamily: 'monospace' }}>Earned: ₹{c.totalEarned.toLocaleString()}</span>
                           </div>
-                          <span className="text-xs text-neutral-400">
-                            @{it.creator_name} • ₹{it.reward_inr}
-                            {it.total_budget > 0 && ` • Pool: ₹${it.total_budget}`}
-                            {it.deadline && ` • Closes: ${it.deadline}`}
-                          </span>
+                          <h3 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 8px 0', color: '#FFFFFF' }}>{c.title}</h3>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', margin: '10px 0 14px 0', fontSize: '12px' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 9px', borderRadius: '8px', backgroundColor: 'rgba(255, 255, 255, 0.05)', color: '#B4B4C4' }}>
+                              <Calendar size={12} color="#887DFF" /> {c.start_date ? `Starts: ${c.start_date}` : 'Ongoing'}
+                            </span>
+                            {c.deadline && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 9px', borderRadius: '8px', backgroundColor: 'rgba(255, 255, 255, 0.05)', color: '#B4B4C4' }}>
+                                <Clock size={12} color="#C988FF" /> Ends: {c.deadline}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ backgroundColor: '#09090D', borderRadius: '12px', padding: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', textAlign: 'center', marginBottom: '14px' }}>
+                            <div>
+                              <div style={{ fontSize: '10px', color: '#8E8E9F', textTransform: 'uppercase', fontWeight: 700 }}>Proofs Sent</div>
+                              <div style={{ fontSize: '16px', fontWeight: 800, color: '#FFFFFF', marginTop: '2px' }}>{c.clipsSubmitted}</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '10px', color: '#8E8E9F', textTransform: 'uppercase', fontWeight: 700 }}>{c.type === 'BOUNTY' ? 'Completed' : 'Total Views'}</div>
+                              <div style={{ fontSize: '16px', fontWeight: 800, color: '#C988FF', marginTop: '2px' }}>{c.type === 'BOUNTY' ? c.paidCount : c.totalViews.toLocaleString()}</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '10px', color: '#8E8E9F', textTransform: 'uppercase', fontWeight: 700 }}>In Review</div>
+                              <div style={{ fontSize: '16px', fontWeight: 800, color: '#FBBF24', marginTop: '2px' }}>{c.pendingCount}</div>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => toggleItemStatus(it.id, it.status)}
-                            className="text-xs bg-[#1F1F26] hover:bg-[#2D2D3A] border border-[#2D2D3A] px-3 py-1.5 rounded-lg flex items-center gap-1 text-white"
-                          >
-                            {it.status === 'ACTIVE' ? <><PauseCircle className="w-3.5 h-3.5 text-[#887DFF]" /> Pause</> : <><PlayCircle className="w-3.5 h-3.5 text-emerald-400" /> Resume</>}
+
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button onClick={() => { setSubmissionForm((prev) => ({ ...prev, campaign_id: c.id })); setActiveTab('submit'); }} style={{ flex: 1, padding: '10px', borderRadius: '10px', background: 'linear-gradient(135deg, #887DFF 0%, #C988FF 100%)', color: '#FFFFFF', fontWeight: 700, fontSize: '12px', border: 'none', cursor: 'pointer' }}>
+                            Submit Another Proof
                           </button>
-                          <button
-                            onClick={() => deleteItem(it.id)}
-                            className="text-xs bg-red-950/60 hover:bg-red-900 text-red-400 border border-red-800 px-2.5 py-1.5 rounded-lg"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {c.assets_url && (
+                            <a href={c.assets_url} target="_blank" rel="noreferrer" style={{ padding: '10px 14px', borderRadius: '10px', backgroundColor: 'rgba(255, 255, 255, 0.05)', color: '#FFFFFF', fontSize: '12px', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              Assets <ArrowUpRight size={13} />
+                            </a>
+                          )}
                         </div>
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: CAMPAIGNS (Restored with Budget Bar) */}
+        {activeTab === 'campaigns' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '20px' }}>
+              <div>
+                <h2 style={{ fontSize: '24px', fontWeight: 800, margin: 0, color: '#FFFFFF' }}>Pay-Per-View Campaigns</h2>
+                <p style={{ fontSize: '13px', color: '#8E8E9F', margin: '4px 0 0 0' }}>Create content and earn scaled cash per 1,000 verified views</p>
+              </div>
+              <span style={{ fontSize: '12px', fontWeight: 600, backgroundColor: 'rgba(136, 125, 255, 0.12)', color: '#C988FF', border: '1px solid rgba(136, 125, 255, 0.25)', borderRadius: '999px', padding: '4px 12px' }}>
+                {activeCampaigns.length} available
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+              {activeCampaigns.map((c) => {
+                const budgetInfo = getBudgetStatus(c);
+                const isExpired = c.deadline && new Date(c.deadline) < new Date();
+
+                return (
+                  <div key={c.id} style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '20px', padding: '22px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 700, backgroundColor: 'rgba(136, 125, 255, 0.1)', color: '#C988FF', border: '1px solid rgba(136, 125, 255, 0.2)', padding: '3px 10px', borderRadius: '999px' }}>
+                          PPV • @{c.creator_name}
+                        </span>
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontSize: '18px', fontWeight: 800, color: '#C988FF', fontFamily: 'monospace' }}>₹{c.reward_inr}</span>
+                          <span style={{ fontSize: '11px', color: '#8E8E9F', marginLeft: '3px' }}>/ 1k views</span>
+                        </div>
+                      </div>
+
+                      <h3 style={{ fontSize: '17px', fontWeight: 700, margin: '0 0 8px 0', color: '#FFFFFF' }}>{c.title}</h3>
+
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', margin: '12px 0', fontSize: '12px' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '8px', backgroundColor: 'rgba(255, 255, 255, 0.05)', color: '#B4B4C4' }}>
+                          <Calendar size={12} color="#887DFF" /> {c.start_date ? `Starts: ${c.start_date}` : 'Immediate'}
+                        </span>
+                        {c.deadline && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '8px', backgroundColor: isExpired ? 'rgba(239, 68, 68, 0.15)' : 'rgba(255, 255, 255, 0.05)', color: isExpired ? '#F87171' : '#B4B4C4' }}>
+                            <Clock size={12} color="#C988FF" /> {isExpired ? 'Ended' : `Ends: ${c.deadline}`}
+                          </span>
+                        )}
+                        {c.min_views > 0 && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '8px', backgroundColor: 'rgba(201, 136, 255, 0.08)', color: '#C988FF' }}>
+                            <AlertCircle size={12} /> Min {c.min_views.toLocaleString()} views
+                          </span>
+                        )}
+                        {budgetInfo && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '8px', backgroundColor: 'rgba(255, 255, 255, 0.05)', color: '#B4B4C4' }}>
+                            <DollarSign size={12} color="#887DFF" /> Pool: ₹{budgetInfo.remaining.toLocaleString()} left
+                          </span>
+                        )}
+                      </div>
+
+                      {budgetInfo && (
+                        <div style={{ width: '100%', backgroundColor: 'rgba(255, 255, 255, 0.05)', height: '5px', borderRadius: '999px', overflow: 'hidden', margin: '8px 0 12px 0' }}>
+                          <div style={{ width: `${budgetInfo.percent}%`, height: '100%', background: 'linear-gradient(90deg, #887DFF, #C988FF)' }} />
+                        </div>
+                      )}
+
+                      <p style={{ fontSize: '13px', color: '#8E8E9F', lineHeight: 1.5, margin: '10px 0', whiteSpace: 'pre-line' }}>{c.guidelines}</p>
+                    </div>
+
+                    <button disabled={isExpired || budgetInfo?.isExhausted} onClick={() => { setSubmissionForm((prev) => ({ ...prev, campaign_id: c.id })); setActiveTab('submit'); }} style={{ marginTop: '20px', width: '100%', padding: '11px', borderRadius: '12px', fontSize: '13px', fontWeight: 700, color: '#FFFFFF', background: isExpired || budgetInfo?.isExhausted ? '#1E1E26' : 'linear-gradient(135deg, #887DFF 0%, #C988FF 100%)', border: 'none', cursor: isExpired || budgetInfo?.isExhausted ? 'not-allowed' : 'pointer' }}>
+                      {isExpired ? 'Campaign Concluded' : budgetInfo?.isExhausted ? 'Budget Exhausted' : 'Submit Reel Proof'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* TAB: BOUNTIES */}
+        {activeTab === 'bounties' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '20px' }}>
+              <div>
+                <h2 style={{ fontSize: '24px', fontWeight: 800, margin: 0, color: '#FFFFFF' }}>Task Bounties</h2>
+                <p style={{ fontSize: '13px', color: '#8E8E9F', margin: '4px 0 0 0' }}>Fixed reward per task completion</p>
+              </div>
+              <span style={{ fontSize: '12px', fontWeight: 600, backgroundColor: 'rgba(201, 136, 255, 0.12)', color: '#C988FF', border: '1px solid rgba(201, 136, 255, 0.25)', borderRadius: '999px', padding: '4px 12px' }}>
+                {activeBounties.length} open
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+              {activeBounties.map((b) => (
+                <div key={b.id} style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '20px', padding: '22px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 700, backgroundColor: 'rgba(201, 136, 255, 0.1)', color: '#C988FF', border: '1px solid rgba(201, 136, 255, 0.2)', padding: '3px 10px', borderRadius: '999px' }}>
+                        Bounty • @{b.creator_name}
+                      </span>
+                      <span style={{ fontSize: '20px', fontWeight: 800, color: '#4ADE80', fontFamily: 'monospace' }}>₹{b.reward_inr}</span>
+                    </div>
+
+                    <h3 style={{ fontSize: '17px', fontWeight: 700, margin: '0 0 8px 0', color: '#FFFFFF' }}>{b.title}</h3>
+                    <p style={{ fontSize: '13px', color: '#8E8E9F', lineHeight: 1.5, margin: '10px 0', whiteSpace: 'pre-line' }}>{b.guidelines}</p>
+                    {b.assets_url && (
+                      <a href={b.assets_url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#C988FF', marginTop: '8px', textDecoration: 'none' }}>
+                        <LinkIcon size={12} /> Task Asset / Link ↗
+                      </a>
+                    )}
+                  </div>
+
+                  <button onClick={() => { setSubmissionForm((prev) => ({ ...prev, campaign_id: b.id })); setActiveTab('submit'); }} style={{ marginTop: '20px', width: '100%', padding: '11px', borderRadius: '12px', fontSize: '13px', fontWeight: 700, color: '#FFFFFF', background: 'linear-gradient(135deg, #C988FF 0%, #887DFF 100%)', border: 'none', cursor: 'pointer' }}>
+                    Claim Bounty (Earn ₹{b.reward_inr})
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB: MY SUBMISSIONS (Restored Full View) */}
+        {activeTab === 'my-submissions' && (
+          <div style={{ maxWidth: '820px', margin: '0 auto' }}>
+            <div style={{ marginBottom: '24px' }}>
+              <h2 style={{ fontSize: '24px', fontWeight: 800, margin: 0, color: '#FFFFFF' }}>My Submissions & Payouts</h2>
+              <p style={{ fontSize: '13px', color: '#8E8E9F', margin: '4px 0 0 0' }}>Track approval status, automated verification, and direct UPI rewards</p>
+            </div>
+
+            {!user ? (
+              <div style={{ backgroundColor: '#121217', borderRadius: '24px', padding: '48px 24px', textAlign: 'center' }}>
+                <Clock size={44} color="#887DFF" style={{ margin: '0 auto 14px auto' }} />
+                <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#FFFFFF' }}>Sign in to view your submissions</h3>
+                <button onClick={() => setShowAuthModal(true)} style={{ marginTop: '16px', background: 'linear-gradient(135deg, #887DFF 0%, #C988FF 100%)', color: '#FFFFFF', fontWeight: 700, fontSize: '13px', padding: '11px 24px', borderRadius: '12px', border: 'none', cursor: 'pointer' }}>
+                  Sign In
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+                  <div style={{ backgroundColor: '#121217', borderRadius: '18px', padding: '18px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#8E8E9F', textTransform: 'uppercase' }}>Submissions</div>
+                    <div style={{ fontSize: '28px', fontWeight: 800, color: '#FFFFFF', marginTop: '6px' }}>{mySubmissions.length}</div>
+                  </div>
+                  <div style={{ backgroundColor: '#121217', borderRadius: '18px', padding: '18px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#FBBF24', textTransform: 'uppercase' }}>Under Review</div>
+                    <div style={{ fontSize: '28px', fontWeight: 800, color: '#FBBF24', marginTop: '6px' }}>{myPendingCount}</div>
+                  </div>
+                  <div style={{ backgroundColor: '#121217', borderRadius: '18px', padding: '18px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#4ADE80', textTransform: 'uppercase' }}>Total Earned</div>
+                    <div style={{ fontSize: '28px', fontWeight: 800, color: '#4ADE80', marginTop: '6px', fontFamily: 'monospace' }}>₹{myEarned.toLocaleString()}</div>
+                  </div>
                 </div>
 
-                {/* 3. Submissions & UPI Payouts */}
-                <div className="bg-[#13131A] border border-[#1F1F26] p-5 rounded-2xl shadow-lg">
-                  <h3 className="font-bold text-base mb-3 text-white">Submissions & UPI Payout Desk</h3>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="text-xs uppercase text-neutral-400 border-b border-[#1F1F26]">
-                        <tr>
-                          <th className="py-2.5">Creator</th>
-                          <th>Views</th>
-                          <th>Proof</th>
-                          <th>UPI ID</th>
-                          <th>Status</th>
-                          <th>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y border-[#1F1F26]">
-                        {submissions.map((s) => (
-                          <tr key={s.id} className="text-white">
-                            <td className="py-3 font-medium">{s.creator_handle}</td>
-                            <td className="text-neutral-400">{s.views_claimed.toLocaleString()}</td>
-                            <td>
-                              <a href={s.reel_url} target="_blank" rel="noreferrer" className="text-[#887DFF] hover:underline inline-flex items-center gap-1">
-                                Reel <ExternalLink className="w-3 h-3" />
-                              </a>
-                            </td>
-                            <td>
-                              <button
-                                onClick={() => copyToClipboard(s.upi_id)}
-                                className="inline-flex items-center gap-1 font-mono text-xs bg-[#1F1F26] hover:bg-[#2D2D3A] px-2 py-1 rounded-lg text-[#C988FF] border border-[#2D2D3A]"
-                              >
-                                {s.upi_id}
-                                {copiedUpi === s.upi_id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-neutral-400" />}
-                              </button>
-                            </td>
-                            <td>
-                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                                s.status === 'PAID' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' :
-                                s.status === 'REJECTED' ? 'bg-red-950 text-red-400 border border-red-800' :
-                                'bg-[#887DFF]/20 text-[#887DFF] border border-[#887DFF]/30'
-                              }`}>
-                                {s.status}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {mySubmissions.map((sub) => {
+                    const isPaid = sub.status === 'PAID';
+                    const isPending = sub.status === 'PENDING';
+                    const isRejected = sub.status === 'REJECTED';
+                    const earnedOrEstimated = calculatePayout(sub.campaigns, sub.views_claimed);
+
+                    return (
+                      <div key={sub.id} style={{ backgroundColor: '#121217', border: isPaid ? '1px solid rgba(34, 197, 94, 0.25)' : isPending ? '1px solid rgba(245, 158, 11, 0.25)' : '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '18px', padding: '18px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                            <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 7px', borderRadius: '6px', backgroundColor: sub.campaigns?.type === 'BOUNTY' ? 'rgba(201, 136, 255, 0.15)' : 'rgba(136, 125, 255, 0.15)', color: sub.campaigns?.type === 'BOUNTY' ? '#C988FF' : '#887DFF' }}>
+                              {sub.campaigns?.type === 'BOUNTY' ? 'BOUNTY' : 'PPV CAMPAIGN'}
+                            </span>
+                            <span style={{ fontWeight: 700, fontSize: '15px', color: '#FFFFFF' }}>{sub.campaigns?.title}</span>
+                          </div>
+
+                          <div style={{ fontSize: '12px', color: '#8E8E9F', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+                            {sub.campaigns?.type === 'CAMPAIGN' && (
+                              <span>Views: <strong style={{ color: '#F4F4F6' }}>{Number(sub.views_claimed).toLocaleString()}</strong> • </span>
+                            )}
+                            <span>UPI: <code style={{ color: '#C988FF' }}>{sub.upi_id}</code></span>
+                            <span>•</span>
+                            <a href={sub.reel_url} target="_blank" rel="noreferrer" style={{ color: '#887DFF', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              Proof Link <ArrowUpRight size={12} />
+                            </a>
+                            {sub.payout_tx_id && <span style={{ color: '#4ADE80' }}>• Tx: {sub.payout_tx_id}</span>}
+                            {sub.payout_error && <span style={{ color: '#EF4444' }}>• Issue: {sub.payout_error}</span>}
+                          </div>
+                        </div>
+
+                        <div style={{ textAlign: 'right' }}>
+                          {isPaid && (
+                            <div>
+                              <span style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#4ADE80', border: '1px solid rgba(34, 197, 94, 0.3)', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: 800 }}>
+                                Approved & Paid
                               </span>
-                            </td>
-                            <td className="space-x-1.5">
-                              {s.status === 'PENDING' && (
-                                <>
-                                  <button
-                                    onClick={() => updateSubmissionStatus(s.id, 'PAID')}
-                                    className="bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white px-2.5 py-1 rounded-lg text-xs font-bold hover:opacity-90"
-                                  >
-                                    Paid
-                                  </button>
-                                  <button
-                                    onClick={() => updateSubmissionStatus(s.id, 'REJECTED')}
-                                    className="bg-[#1F1F26] hover:bg-[#2D2D3A] text-neutral-400 px-2 py-1 rounded-lg text-xs border border-[#2D2D3A]"
-                                  >
-                                    Reject
-                                  </button>
-                                </>
-                              )}
-                              <button
-                                onClick={() => deleteSubmission(s.id)}
-                                className="text-neutral-500 hover:text-red-400 p-1"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                              <div style={{ fontSize: '15px', fontWeight: 800, color: '#4ADE80', marginTop: '4px', fontFamily: 'monospace' }}>
+                                + ₹{earnedOrEstimated.toLocaleString()}
+                              </div>
+                            </div>
+                          )}
+                          {isPending && (
+                            <div>
+                              <span style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#FBBF24', border: '1px solid rgba(245, 158, 11, 0.3)', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: 700 }}>
+                                Under Review
+                              </span>
+                              <div style={{ fontSize: '11px', color: '#8E8E9F', marginTop: '4px' }}>
+                                Reward: <strong style={{ color: '#FBBF24' }}>₹{earnedOrEstimated.toLocaleString()}</strong>
+                              </div>
+                            </div>
+                          )}
+                          {isRejected && (
+                            <span style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#F87171', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: 700 }}>
+                              Not Accepted
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
           </div>
         )}
+
+        {/* TAB: SUBMIT PROOF (Restored with Live Calculator Card) */}
+        {activeTab === 'submit' && (
+          <div style={{ maxWidth: '520px', margin: '0 auto', backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '24px', padding: '28px' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: 800, margin: '0 0 6px 0', color: '#FFFFFF' }}>Submit Proof of Work</h2>
+            <p style={{ fontSize: '13px', color: '#8E8E9F', margin: '0 0 24px 0' }}>Paste your live link for automated social verification and UPI payout</p>
+
+            {!user ? (
+              <div style={{ textAlign: 'center', padding: '32px 16px' }}>
+                <CreatorCoreLogo size={40} />
+                <h3 style={{ fontSize: '16px', fontWeight: 700, margin: '12px 0 6px 0', color: '#FFFFFF' }}>Sign In Required</h3>
+                <p style={{ fontSize: '13px', color: '#8E8E9F', margin: '0 0 20px 0' }}>Create an account to bind your UPI ID and track payouts in real time.</p>
+                <button onClick={() => setShowAuthModal(true)} style={{ background: 'linear-gradient(135deg, #887DFF 0%, #C988FF 100%)', color: '#FFFFFF', fontWeight: 700, fontSize: '13px', padding: '10px 24px', borderRadius: '12px', border: 'none', cursor: 'pointer' }}>
+                  Sign In or Create Account
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitProof} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: '#8E8E9F', textTransform: 'uppercase' }}>Select Campaign or Bounty</label>
+                  <select value={submissionForm.campaign_id} onChange={(e) => setSubmissionForm({ ...submissionForm, campaign_id: e.target.value })} style={{ width: '100%', marginTop: '6px', backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', padding: '11px 14px', color: '#FFFFFF', fontSize: '13px' }}>
+                    {items.filter(i => i.status === 'ACTIVE').map((i) => (
+                      <option key={i.id} value={i.id}>
+                        [{i.type === 'BOUNTY' ? 'BOUNTY' : 'PPV'}] {i.title} ({i.type === 'BOUNTY' ? `₹${i.reward_inr} Fixed Reward` : `₹${i.reward_inr}/1k views`})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: '#8E8E9F', textTransform: 'uppercase' }}>Your Social Handle</label>
+                  <input required placeholder="@your_handle" value={submissionForm.creator_handle} onChange={(e) => setSubmissionForm({ ...submissionForm, creator_handle: e.target.value })} style={{ width: '100%', marginTop: '6px', backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', padding: '11px 14px', color: '#FFFFFF', fontSize: '13px' }} />
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 700, color: '#8E8E9F', textTransform: 'uppercase' }}>
+                      {selectedSubmitItem?.type === 'BOUNTY' ? 'Proof Link (Screenshot / Post / Deliverable)' : 'Instagram Reel / YouTube Shorts URL'}
+                    </label>
+                    {submissionForm.reel_url && (
+                      <span style={{ fontSize: '11px', color: isValidContentUrl(submissionForm.reel_url) ? '#4ADE80' : '#F87171', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                        {isValidContentUrl(submissionForm.reel_url) ? <><Check size={12} /> Valid URL</> : 'Invalid Format'}
+                      </span>
+                    )}
+                  </div>
+                  <input required placeholder={selectedSubmitItem?.type === 'BOUNTY' ? 'https://instagram.com/p/... or drive link' : 'https://instagram.com/reel/...'} value={submissionForm.reel_url} onChange={(e) => setSubmissionForm({ ...submissionForm, reel_url: e.target.value })} style={{ width: '100%', marginTop: '6px', backgroundColor: '#09090D', border: submissionForm.reel_url && !isValidContentUrl(submissionForm.reel_url) ? '1px solid #EF4444' : '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', padding: '11px 14px', color: '#FFFFFF', fontSize: '13px' }} />
+                </div>
+
+                {selectedSubmitItem?.type !== 'BOUNTY' && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 700, color: '#8E8E9F', textTransform: 'uppercase' }}>Views Achieved</label>
+                      {selectedSubmitItem?.min_views > 0 && (
+                        <span style={{ fontSize: '11px', color: '#C988FF' }}>Min: {selectedSubmitItem.min_views.toLocaleString()}</span>
+                      )}
+                    </div>
+                    <input required type="number" placeholder="e.g. 25000" value={submissionForm.views_claimed} onChange={(e) => setSubmissionForm({ ...submissionForm, views_claimed: e.target.value })} style={{ width: '100%', marginTop: '6px', backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', padding: '11px 14px', color: '#FFFFFF', fontSize: '13px' }} />
+                  </div>
+                )}
+
+                {/* Restored Live Calculator Preview */}
+                {selectedSubmitItem && (
+                  <div style={{ backgroundColor: 'rgba(136, 125, 255, 0.1)', border: '1px solid rgba(136, 125, 255, 0.25)', borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Calculator size={18} color="#C988FF" />
+                      <div>
+                        <div style={{ fontSize: '11px', color: '#8E8E9F', textTransform: 'uppercase', fontWeight: 700 }}>
+                          {selectedSubmitItem.type === 'BOUNTY' ? 'Fixed Bounty Reward' : 'Calculated PPV Payout'}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#F4F4F6' }}>
+                          {selectedSubmitItem.type === 'BOUNTY'
+                            ? `Fixed reward upon verification`
+                            : `${Number(submissionForm.views_claimed || 0).toLocaleString()} views @ ₹${selectedSubmitItem.reward_inr} / 1k`}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '18px', fontWeight: 800, color: '#4ADE80', fontFamily: 'monospace' }}>
+                      ₹{estimatedPayout.toLocaleString()}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: '#8E8E9F', textTransform: 'uppercase' }}>UPI ID for Direct Payout</label>
+                  <input required placeholder="username@okhdfcbank" value={submissionForm.upi_id} onChange={(e) => setSubmissionForm({ ...submissionForm, upi_id: e.target.value })} style={{ width: '100%', marginTop: '6px', backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', padding: '11px 14px', color: '#FFFFFF', fontSize: '13px' }} />
+                </div>
+
+                <button disabled={submissionLoading} type="submit" style={{ marginTop: '8px', background: 'linear-gradient(135deg, #887DFF 0%, #C988FF 100%)', color: '#FFFFFF', fontWeight: 700, fontSize: '13px', padding: '12px', borderRadius: '12px', border: 'none', cursor: 'pointer' }}>
+                  {submissionLoading ? 'Verifying with Social API...' : 'Verify Link & Submit Proof'}
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+
+        {/* TAB: LEADERBOARD */}
+        {activeTab === 'leaderboard' && (
+          <div style={{ maxWidth: '780px', margin: '0 auto' }}>
+            <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+              <div style={{ display: 'inline-flex', padding: '12px', borderRadius: '16px', backgroundColor: 'rgba(136, 125, 255, 0.1)', border: '1px solid rgba(136, 125, 255, 0.2)', marginBottom: '10px' }}>
+                <Trophy size={28} color="#C988FF" />
+              </div>
+              <h2 style={{ fontSize: '26px', fontWeight: 800, margin: 0, color: '#FFFFFF' }}>Creator Hall of Fame</h2>
+              <p style={{ fontSize: '13px', color: '#8E8E9F', marginTop: '6px' }}>Top creators ranked by verified earnings</p>
+            </div>
+
+            <div style={{ backgroundColor: '#121217', borderRadius: '20px', border: '1px solid rgba(255, 255, 255, 0.08)', overflow: 'hidden' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 120px 140px', padding: '14px 20px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#8E8E9F', borderBottom: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                <span>Rank</span>
+                <span>Creator</span>
+                <span>Views</span>
+                <span style={{ textAlign: 'right' }}>Total Earned</span>
+              </div>
+
+              {leaderboard.map((c, i) => (
+                <div key={c.handle} style={{ display: 'grid', gridTemplateColumns: '80px 1fr 120px 140px', padding: '16px 20px', fontSize: '13px', alignItems: 'center', borderBottom: i === leaderboard.length - 1 ? 'none' : '1px solid rgba(255, 255, 255, 0.04)' }}>
+                  <span style={{ fontWeight: 800, color: i === 0 ? '#C988FF' : '#FFFFFF' }}>
+                    {i === 0 ? '🥇 1st' : i === 1 ? '🥈 2nd' : i === 2 ? '🥉 3rd' : `#${i + 1}`}
+                  </span>
+                  <span style={{ fontWeight: 600, color: '#FFFFFF' }}>{c.handle}</span>
+                  <span style={{ color: '#8E8E9F' }}>{c.totalViews.toLocaleString()}</span>
+                  <span style={{ textAlign: 'right', fontWeight: 800, color: '#4ADE80', fontFamily: 'monospace' }}>₹{c.totalEarned.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB: COMMUNITY CHAT */}
+        {activeTab === 'chat' && (
+          <div style={{ maxWidth: '680px', margin: '0 auto', backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '24px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '540px' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255, 255, 255, 0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: '14px', color: '#FFFFFF' }}>Creator Hub</span>
+              {isAdmin && <span style={{ fontSize: '11px', color: '#C988FF' }}>Admin Active</span>}
+            </div>
+
+            <div style={{ flex: 1, padding: '16px 20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {messages.length === 0 ? (
+                <p style={{ textAlign: 'center', color: '#8E8E9F', margin: 'auto', fontSize: '13px' }}>No messages yet. Say hello!</p>
+              ) : (
+                messages.map((m) => (
+                  <div key={m.id} style={{ backgroundColor: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '12px', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <span style={{ fontWeight: 700, fontSize: '12px', color: '#C988FF', marginRight: '6px' }}>{m.sender_name}:</span>
+                      <span style={{ fontSize: '13px', color: '#F4F4F6' }}>{m.content}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {user ? (
+              <form onSubmit={handleSendMessage} style={{ padding: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'flex', gap: '8px' }}>
+                <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Share feedback or collaborate..." style={{ flex: 1, backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '10px 14px', color: '#FFFFFF', fontSize: '13px' }} />
+                <button type="submit" style={{ background: 'linear-gradient(135deg, #887DFF 0%, #C988FF 100%)', color: '#FFFFFF', borderRadius: '12px', padding: '10px 16px', border: 'none', cursor: 'pointer' }}>
+                  <Send size={15} />
+                </button>
+              </form>
+            ) : (
+              <div style={{ padding: '14px', textAlign: 'center', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                <button onClick={() => setShowAuthModal(true)} style={{ color: '#C988FF', fontSize: '13px', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>
+                  Sign in to participate in chat
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: ADMIN DESK (Restored Full Control Table & Creator Actions) */}
+        {activeTab === 'admin' && isAdmin && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {/* 1. Review Table */}
+            <div style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '20px', padding: '24px', overflowX: 'auto' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 16px 0', color: '#FFFFFF' }}>Review & 1-Click Instant UPI Disbursements</h3>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ color: '#8E8E9F', borderBottom: '1px solid rgba(255, 255, 255, 0.06)', fontSize: '11px', textTransform: 'uppercase' }}>
+                    <th style={{ padding: '10px 0' }}>Creator</th>
+                    <th>Metric</th>
+                    <th>Payout</th>
+                    <th>Proof</th>
+                    <th>UPI Handle</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {submissions.map((s) => {
+                    const payout = calculatePayout(s.campaigns, s.views_claimed);
+                    return (
+                      <tr key={s.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                        <td style={{ padding: '14px 0', fontWeight: 600 }}>{s.creator_handle}</td>
+                        <td style={{ color: '#8E8E9F' }}>{s.views_claimed?.toLocaleString()} views</td>
+                        <td style={{ fontWeight: 800, color: '#4ADE80', fontFamily: 'monospace' }}>₹{payout.toLocaleString()}</td>
+                        <td>
+                          <a href={s.reel_url} target="_blank" rel="noreferrer" style={{ color: '#C988FF', textDecoration: 'none', fontWeight: 600 }}>Proof ↗</a>
+                        </td>
+                        <td>
+                          <button onClick={() => copyToClipboard(s.upi_id)} style={{ backgroundColor: 'rgba(255, 255, 255, 0.05)', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontFamily: 'monospace', color: '#C988FF', border: 'none', cursor: 'pointer' }}>
+                            {s.upi_id} {copiedUpi === s.upi_id ? '✓' : ''}
+                          </button>
+                        </td>
+                        <td>
+                          <span style={{ fontSize: '10px', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', backgroundColor: s.status === 'PAID' ? 'rgba(34, 197, 94, 0.15)' : s.status === 'REJECTED' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)', color: s.status === 'PAID' ? '#4ADE80' : s.status === 'REJECTED' ? '#F87171' : '#FBBF24' }}>
+                            {s.status === 'PAID' ? 'PAID VIA UPI' : s.status}
+                          </span>
+                        </td>
+                        <td>
+                          {s.status === 'PENDING' ? (
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button onClick={() => handleApproveWithPayout(s.id)} style={{ backgroundColor: '#22C55E', color: '#000000', padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 800, border: 'none', cursor: 'pointer' }}>
+                                Approve & Pay (UPI)
+                              </button>
+                              <button onClick={() => handleRejectSubmission(s.id)} style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#F87171', padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, border: 'none', cursor: 'pointer' }}>
+                                Reject
+                              </button>
+                            </div>
+                          ) : (
+                            <span style={{ color: '#8E8E9F', fontSize: '11px' }}>{s.payout_tx_id ? `Tx: ${s.payout_tx_id}` : 'Processed'}</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 2. Create Listing Form */}
+            <div style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '20px', padding: '24px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 4px 0', color: '#FFFFFF', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <PlusCircle size={18} color="#C988FF" /> Publish Program
+              </h3>
+              <div style={{ display: 'flex', gap: '8px', margin: '16px 0' }}>
+                <button type="button" onClick={() => setNewItem({ ...newItem, type: 'CAMPAIGN' })} style={{ flex: 1, padding: '10px', borderRadius: '10px', fontSize: '12px', fontWeight: 700, backgroundColor: newItem.type === 'CAMPAIGN' ? '#887DFF' : 'rgba(255, 255, 255, 0.05)', color: '#FFFFFF', border: '1px solid rgba(255, 255, 255, 0.08)', cursor: 'pointer' }}>
+                  PPV Campaign (Pay per 1k views)
+                </button>
+                <button type="button" onClick={() => setNewItem({ ...newItem, type: 'BOUNTY' })} style={{ flex: 1, padding: '10px', borderRadius: '10px', fontSize: '12px', fontWeight: 700, backgroundColor: newItem.type === 'BOUNTY' ? '#C988FF' : 'rgba(255, 255, 255, 0.05)', color: '#FFFFFF', border: '1px solid rgba(255, 255, 255, 0.08)', cursor: 'pointer' }}>
+                  Task Bounty (Fixed Reward)
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateItem} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <input required placeholder="Brand or Creator Handle (e.g. FitRaj)" value={newItem.creator_name} onChange={(e) => setNewItem({ ...newItem, creator_name: e.target.value })} style={{ backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '10px 12px', color: '#FFFFFF', fontSize: '13px' }} />
+                <input required type="number" placeholder="Total Pool Budget in ₹" value={newItem.total_budget} onChange={(e) => setNewItem({ ...newItem, total_budget: e.target.value })} style={{ backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '10px 12px', color: '#FFFFFF', fontSize: '13px' }} />
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: newItem.type === 'BOUNTY' ? '#C988FF' : '#887DFF', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
+                    {newItem.type === 'BOUNTY' ? 'Reward per Submission (₹)' : 'Rate / 1k Views (₹)'}
+                  </label>
+                  <input required type="number" placeholder={newItem.type === 'BOUNTY' ? '500' : '100'} value={newItem.reward_inr} onChange={(e) => setNewItem({ ...newItem, reward_inr: e.target.value })} style={{ backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '10px 12px', color: '#FFFFFF', fontSize: '13px', width: '100%' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: '#8E8E9F', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Min Views Required</label>
+                  <input type="number" placeholder="e.g. 1000" value={newItem.min_views} onChange={(e) => setNewItem({ ...newItem, min_views: e.target.value })} style={{ backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '10px 12px', color: '#FFFFFF', fontSize: '13px', width: '100%' }} />
+                </div>
+                <input required placeholder="Title" value={newItem.title} onChange={(e) => setNewItem({ ...newItem, title: e.target.value })} style={{ gridColumn: '1 / -1', backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '10px 12px', color: '#FFFFFF', fontSize: '13px' }} />
+                <textarea required placeholder="Guidelines & Rules" value={newItem.guidelines} onChange={(e) => setNewItem({ ...newItem, guidelines: e.target.value })} rows={3} style={{ gridColumn: '1 / -1', backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '10px 12px', color: '#FFFFFF', fontSize: '13px' }} />
+                <button type="submit" style={{ gridColumn: '1 / -1', padding: '11px', borderRadius: '10px', background: 'linear-gradient(135deg, #887DFF 0%, #C988FF 100%)', color: '#FFFFFF', fontWeight: 700, fontSize: '13px', border: 'none', cursor: 'pointer' }}>
+                  Publish Program
+                </button>
+              </form>
+            </div>
+
+            {/* 3. Manage Listings */}
+            <div style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '20px', padding: '24px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 16px 0', color: '#FFFFFF' }}>Manage Listings ({items.length})</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {items.map((it) => (
+                  <div key={it.id} style={{ backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '14px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '14px', color: '#FFFFFF' }}>{it.title}</div>
+                      <div style={{ fontSize: '12px', color: '#8E8E9F' }}>@{it.creator_name} • ₹{it.reward_inr} • Status: {it.status}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={() => handleToggleStatus(it.id, it.status)} style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: 600, backgroundColor: 'rgba(255, 255, 255, 0.05)', color: '#F4F4F6', border: 'none', cursor: 'pointer' }}>
+                        {it.status === 'ACTIVE' ? 'Pause' : 'Resume'}
+                      </button>
+                      <button onClick={() => handleDeleteListing(it.id)} style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: 600, backgroundColor: 'rgba(239, 68, 68, 0.12)', color: '#EF4444', border: 'none', cursor: 'pointer' }}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
-      {/* ================= DUAL AUTH MODAL ================= */}
+      {/* Auth Modal (Restored with Google Sign-in) */}
       {showAuthModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-[#13131A] border border-[#1F1F26] max-w-sm w-full p-6 sm:p-7 rounded-3xl relative shadow-2xl">
-            <button
-              onClick={() => setShowAuthModal(false)}
-              className="absolute top-4 right-4 text-neutral-400 hover:text-white"
-            >
-              <X className="w-5 h-5" />
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '16px' }}>
+          <div style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '24px', maxWidth: '380px', width: '100%', padding: '28px', position: 'relative' }}>
+            <button onClick={() => setShowAuthModal(false)} style={{ position: 'absolute', top: '16px', right: '16px', color: '#8E8E9F', background: 'none', border: 'none', cursor: 'pointer' }}>
+              <X size={18} />
             </button>
 
-            <div className="text-center mb-5">
-              <div className="flex justify-center mb-2">
-                <CreatorCoreLogo size={44} />
-              </div>
-              <h3 className="font-extrabold text-xl text-white">
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <CreatorCoreLogo size={40} />
+              <h3 style={{ fontSize: '18px', fontWeight: 800, margin: '12px 0 4px 0', color: '#FFFFFF' }}>
                 {authMode === 'signin' ? 'Welcome Back' : 'Join Creator Core'}
               </h3>
-              <p className="text-xs text-neutral-400 mt-1">
-                {authMode === 'signin' ? 'Sign in to submit work and claim UPI payouts' : 'Create an account to join campaigns and earn bounties'}
+              <p style={{ fontSize: '12px', color: '#8E8E9F', margin: 0 }}>
+                {authMode === 'signin' ? 'Sign in to track payouts and claim bounties' : 'Create an account to start earning'}
               </p>
             </div>
 
             {authError && (
-              <div className="bg-red-950/80 border border-red-800 text-red-300 text-xs p-2.5 rounded-xl mb-4 text-center">
+              <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#F87171', fontSize: '12px', padding: '8px', borderRadius: '8px', marginBottom: '12px', textAlign: 'center' }}>
                 {authError}
               </div>
             )}
 
-            <button
-              onClick={handleGoogleLogin}
-              disabled={authLoading}
-              className="w-full bg-white hover:bg-neutral-100 text-black font-semibold py-2.5 px-4 rounded-xl text-sm flex items-center justify-center gap-2 transition-all mb-4 shadow-md"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
+            <button onClick={handleGoogleLogin} disabled={authLoading} style={{ width: '100%', backgroundColor: '#FFFFFF', color: '#000000', fontWeight: 700, fontSize: '13px', padding: '11px', borderRadius: '12px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '16px' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
                 <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
@@ -1148,80 +1189,27 @@ export default function App() {
               Continue with Google
             </button>
 
-            <div className="flex items-center gap-2 mb-4">
-              <div className="flex-1 border-b border-[#2D2D3A]" />
-              <span className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">Or use email</span>
-              <div className="flex-1 border-b border-[#2D2D3A]" />
-            </div>
-
-            <form onSubmit={handleEmailAuth} className="space-y-3">
+            <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {authMode === 'signup' && (
-                <div>
-                  <label className="text-[11px] text-neutral-400 font-medium">Your Name / Creator Handle</label>
-                  <input
-                    required
-                    type="text"
-                    placeholder="e.g. Aarav Sharma"
-                    value={authName}
-                    onChange={(e) => setAuthName(e.target.value)}
-                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] px-3 py-2 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                  />
-                </div>
+                <input required placeholder="Your Name" value={authName} onChange={(e) => setAuthName(e.target.value)} style={{ backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '10px 12px', color: '#FFFFFF', fontSize: '13px' }} />
               )}
-              <div>
-                <label className="text-[11px] text-neutral-400 font-medium">Email Address</label>
-                <input
-                  required
-                  type="email"
-                  placeholder="creator@example.com"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] px-3 py-2 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] text-neutral-400 font-medium">Password</label>
-                <input
-                  required
-                  type="password"
-                  minLength={6}
-                  placeholder="At least 6 characters"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] px-3 py-2 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
-                />
-              </div>
+              <input required type="email" placeholder="Email address" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} style={{ backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '10px 12px', color: '#FFFFFF', fontSize: '13px' }} />
+              <input required type="password" minLength={6} placeholder="Password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} style={{ backgroundColor: '#09090D', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '10px 12px', color: '#FFFFFF', fontSize: '13px' }} />
 
-              <button
-                type="submit"
-                disabled={authLoading}
-                className="w-full bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-bold py-2.5 rounded-xl text-sm hover:opacity-90 shadow-md shadow-[#887DFF]/20 transition-all mt-2"
-              >
-                {authLoading ? 'Processing...' : authMode === 'signin' ? 'Sign In' : 'Create Account'}
+              <button type="submit" disabled={authLoading} style={{ marginTop: '4px', background: 'linear-gradient(135deg, #887DFF 0%, #C988FF 100%)', color: '#FFFFFF', fontWeight: 700, fontSize: '13px', padding: '11px', borderRadius: '10px', border: 'none', cursor: 'pointer' }}>
+                {authLoading ? 'Working...' : authMode === 'signin' ? 'Sign In' : 'Create Account'}
               </button>
             </form>
 
-            <div className="mt-4 text-center">
+            <div style={{ marginTop: '16px', textAlign: 'center' }}>
               {authMode === 'signin' ? (
-                <p className="text-xs text-neutral-400">
-                  New creator?{' '}
-                  <button
-                    onClick={() => { setAuthMode('signup'); setAuthError(''); }}
-                    className="text-[#887DFF] font-semibold hover:underline"
-                  >
-                    Create an account
-                  </button>
-                </p>
+                <span style={{ fontSize: '12px', color: '#8E8E9F' }}>
+                  New here? <button onClick={() => setAuthMode('signup')} style={{ color: '#C988FF', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>Create account</button>
+                </span>
               ) : (
-                <p className="text-xs text-neutral-400">
-                  Already have an account?{' '}
-                  <button
-                    onClick={() => { setAuthMode('signin'); setAuthError(''); }}
-                    className="text-[#887DFF] font-semibold hover:underline"
-                  >
-                    Sign in
-                  </button>
-                </p>
+                <span style={{ fontSize: '12px', color: '#8E8E9F' }}>
+                  Have an account? <button onClick={() => setAuthMode('signin')} style={{ color: '#C988FF', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>Sign in</button>
+                </span>
               )}
             </div>
           </div>
