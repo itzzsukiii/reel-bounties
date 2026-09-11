@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Creator Core | India Creator Bounties & Campaigns',
+  title: 'Creator Core | Creator Bounties & Campaigns',
   description: 'Earn rewards, claim UPI payouts, and connect with top brands and creators.',
   icons: {
     icon: '/favicon.ico',
