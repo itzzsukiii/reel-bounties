@@ -11,30 +11,42 @@ import {
 
 const ADMIN_PIN = process.env.NEXT_PUBLIC_ADMIN_PIN || "9832";
 
-// Official Creator Core Logo Component (Vector SVG with Gradient Star)
-function CreatorCoreLogo({ className = "w-8 h-8" }) {
+// Fixed & Locked Creator Core Logo Component
+function CreatorCoreLogo({ size = 32, className = "" }) {
   return (
-    <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <svg 
+      viewBox="0 0 100 100" 
+      width={size} 
+      height={size} 
+      style={{ 
+        width: `${size}px`, 
+        height: `${size}px`, 
+        minWidth: `${size}px`, 
+        minHeight: `${size}px`, 
+        display: 'inline-block' 
+      }}
+      fill="none" 
+      xmlns="http://www.w3.org/2000/svg" 
+      className={className}
+    >
       <defs>
-        <linearGradient id="cLetterGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id="cGrad" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#FFFFFF" />
-          <stop offset="65%" stopColor="#EDE9FE" />
+          <stop offset="70%" stopColor="#E9E5FF" />
           <stop offset="100%" stopColor="#C988FF" />
         </linearGradient>
-        <linearGradient id="cStarGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id="starGrad" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#887DFF" />
           <stop offset="100%" stopColor="#C988FF" />
         </linearGradient>
       </defs>
-      {/* Bold C Arc */}
       <path
         d="M 68 22 A 40 40 0 1 0 68 78 L 68 60 A 22 22 0 1 1 68 40 Z"
-        fill="url(#cLetterGrad)"
+        fill="url(#cGrad)"
       />
-      {/* Core Radiant Sparkle */}
       <path
         d="M 52 50 C 58 50 60 47 60 40 C 60 47 62 50 69 50 C 62 50 60 53 60 60 C 60 53 58 50 52 50 Z"
-        fill="url(#cStarGrad)"
+        fill="url(#starGrad)"
       />
     </svg>
   );
@@ -184,7 +196,7 @@ export default function App() {
       if (error) {
         setAuthError(error.message);
       } else {
-        alert('Welcome to Creator Core! Account created successfully.');
+        alert('Welcome to Creator Core! Account created.');
         setShowAuthModal(false);
         setUser(data.user);
       }
@@ -235,9 +247,9 @@ export default function App() {
     }]);
 
     if (error) {
-      alert('Error creating listing: ' + error.message);
+      alert('Error: ' + error.message);
     } else {
-      alert(`${newItem.type === 'CAMPAIGN' ? 'Campaign' : 'Bounty'} posted successfully!`);
+      alert(`${newItem.type} posted successfully!`);
       setNewItem({ 
         type: newItem.type, 
         creator_name: '', 
@@ -273,11 +285,11 @@ export default function App() {
       return;
     }
 
-    if (!submissionForm.reel_url || !submissionForm.upi_id) return alert('Please fill in all required fields.');
+    if (!submissionForm.reel_url || !submissionForm.upi_id) return alert('Fill in all required fields.');
 
     const targetItem = items.find(i => i.id === submissionForm.campaign_id);
     if (targetItem && targetItem.deadline && new Date(targetItem.deadline) < new Date()) {
-      return alert('This bounty has already reached its deadline.');
+      return alert('This deadline has already passed.');
     }
 
     const { error } = await supabase.from('submissions').insert([{
@@ -296,11 +308,11 @@ export default function App() {
         saved_upi_id: submissionForm.upi_id
       }).eq('id', user.id);
 
-      alert('Proof submitted! Reward will be verified and transferred to your UPI.');
+      alert('Proof submitted! Payout will be verified and sent to your UPI.');
       setSubmissionForm({ ...submissionForm, reel_url: '', views_claimed: '' });
       fetchSubmissions();
     } else {
-      alert('Error submitting proof: ' + error.message);
+      alert('Error submitting: ' + error.message);
     }
   };
 
@@ -378,83 +390,87 @@ export default function App() {
   const activeBounties = items.filter(i => i.type === 'BOUNTY' && i.status === 'ACTIVE');
 
   return (
-    <div className="min-h-screen bg-[#08080F] text-[#F4F4F6] flex flex-col font-sans selection:bg-[#887DFF] selection:text-white">
+    <div className="min-h-screen bg-[#08080F] text-[#F4F4F6] flex flex-col font-sans">
       {/* Header */}
-      <header className="border-b border-[#1F1F26] bg-[#08080F]/80 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-40">
-        <div className="flex items-center gap-3">
-          <CreatorCoreLogo className="w-8 h-8 drop-shadow-[0_0_12px_rgba(136,125,255,0.4)]" />
-          <div>
-            <span className="font-extrabold text-xl tracking-tight text-[#F4F4F6] block leading-none">
-              Creator Core
-            </span>
-            <span className="text-[9px] uppercase tracking-widest text-[#887DFF] font-semibold mt-1 block">
-              Create / Connect / Grow
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {user ? (
-            <div className="flex items-center gap-2 bg-[#1F1F26] border border-[#2D2D3A] px-3 py-1.5 rounded-xl text-xs">
-              <User className="w-3.5 h-3.5 text-[#887DFF]" />
-              <span className="font-semibold text-[#F4F4F6]">
-                {profile?.full_name || user.user_metadata?.full_name || user.email.split('@')[0]}
-              </span>
-              <button 
-                onClick={handleSignOut} 
-                title="Sign Out" 
-                className="ml-2 text-[#9B9BAA] hover:text-red-400 transition-colors"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
+      <header className="border-b border-[#1F1F26] bg-[#08080F]/90 backdrop-blur px-4 sm:px-6 py-3.5 sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <CreatorCoreLogo size={34} />
+            <div>
+              <div className="font-extrabold text-lg sm:text-xl tracking-tight leading-none text-white">
+                Creator Core
+              </div>
+              <div className="text-[9px] uppercase tracking-widest text-[#887DFF] font-semibold mt-1">
+                Create / Connect / Grow
+              </div>
             </div>
-          ) : (
-            <button
-              onClick={() => { setAuthMode('signin'); setShowAuthModal(true); }}
-              className="flex items-center gap-1.5 bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-semibold px-4 py-2 rounded-xl text-xs shadow-lg shadow-[#887DFF]/20 hover:opacity-90 transition-all"
-            >
-              <LogIn className="w-3.5 h-3.5" /> Sign In / Join
-            </button>
-          )}
+          </div>
 
-          {isAdmin && (
-            <button
-              onClick={() => setIsAdmin(false)}
-              className="flex items-center gap-1 text-xs bg-red-950/80 text-red-400 border border-red-800/80 px-3 py-1.5 rounded-xl hover:bg-red-900 transition-colors"
-            >
-              <Lock className="w-3 h-3" /> Lock Admin
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {user ? (
+              <div className="flex items-center gap-2 bg-[#1F1F26] border border-[#2D2D3A] px-3 py-1.5 rounded-xl text-xs">
+                <User className="w-3.5 h-3.5 text-[#887DFF]" />
+                <span className="font-semibold text-white">
+                  {profile?.full_name || user.user_metadata?.full_name || user.email.split('@')[0]}
+                </span>
+                <button 
+                  onClick={handleSignOut} 
+                  title="Sign Out" 
+                  className="ml-2 text-neutral-400 hover:text-red-400"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setAuthMode('signin'); setShowAuthModal(true); }}
+                className="flex items-center gap-1.5 bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-semibold px-3.5 py-1.5 rounded-xl text-xs shadow-md shadow-[#887DFF]/20 hover:opacity-90 transition-all"
+              >
+                <LogIn className="w-3.5 h-3.5" /> Sign In / Join
+              </button>
+            )}
+
+            {isAdmin && (
+              <button
+                onClick={() => setIsAdmin(false)}
+                className="flex items-center gap-1 text-xs bg-red-950/80 text-red-400 border border-red-800 px-2.5 py-1.5 rounded-xl hover:bg-red-900"
+              >
+                <Lock className="w-3 h-3" /> Lock
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
       {/* Navigation Tabs */}
-      <div className="flex border-b border-[#1F1F26] px-6 bg-[#13131A]/40 gap-4 sm:gap-6 overflow-x-auto">
-        {[
-          { id: 'campaigns', label: 'Campaigns', icon: Briefcase },
-          { id: 'bounties', label: 'Bounties', icon: Sparkles },
-          { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
-          { id: 'submit', label: 'Submit Proof', icon: CheckCircle },
-          { id: 'chat', label: 'Creator Hub', icon: MessageSquare },
-          { id: 'admin', label: 'Admin Desk', icon: Shield },
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 py-3.5 border-b-2 font-medium text-sm whitespace-nowrap transition-all ${
-                isActive 
-                  ? 'border-[#887DFF] text-[#887DFF]' 
-                  : 'border-transparent text-[#9B9BAA] hover:text-[#F4F4F6]'
-              }`}
-            >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-[#887DFF]' : 'text-[#9B9BAA]'}`} />
-              {tab.label}
-            </button>
-          );
-        })}
+      <div className="border-b border-[#1F1F26] bg-[#0E0E17]">
+        <div className="max-w-6xl mx-auto flex gap-2 sm:gap-4 px-4 overflow-x-auto">
+          {[
+            { id: 'campaigns', label: 'Campaigns', icon: Briefcase },
+            { id: 'bounties', label: 'Bounties', icon: Sparkles },
+            { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
+            { id: 'submit', label: 'Submit Proof', icon: CheckCircle },
+            { id: 'chat', label: 'Creator Hub', icon: MessageSquare },
+            { id: 'admin', label: 'Admin Desk', icon: Shield },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 py-3 px-2 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-all ${
+                  isActive 
+                    ? 'border-[#887DFF] text-[#887DFF]' 
+                    : 'border-transparent text-neutral-400 hover:text-white'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <main className="flex-1 p-4 sm:p-6 max-w-6xl w-full mx-auto">
@@ -463,18 +479,18 @@ export default function App() {
           <div className="space-y-4">
             <div className="flex justify-between items-center mb-2">
               <div>
-                <h2 className="text-xl font-bold text-[#F4F4F6]">Active Brand Campaigns</h2>
-                <p className="text-xs text-[#9B9BAA]">Your ideas. Your people. Your core.</p>
+                <h2 className="text-xl font-bold text-white">Active Campaigns</h2>
+                <p className="text-xs text-neutral-400">Collaborate with brands and earn fixed payouts</p>
               </div>
-              <span className="text-xs text-[#887DFF] font-semibold bg-[#887DFF]/10 border border-[#887DFF]/20 px-2.5 py-1 rounded-full">
-                {activeCampaigns.length} campaigns open
+              <span className="text-xs text-[#887DFF] bg-[#887DFF]/10 border border-[#887DFF]/20 px-3 py-1 rounded-full">
+                {activeCampaigns.length} open
               </span>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               {activeCampaigns.length === 0 ? (
-                <div className="col-span-2 text-center py-16 text-[#9B9BAA] bg-[#13131A] border border-[#1F1F26] rounded-2xl">
-                  No campaigns active right now. Switch to Admin Desk to publish one!
+                <div className="col-span-2 text-center py-16 text-neutral-500 bg-[#13131A] border border-[#1F1F26] rounded-2xl">
+                  No active campaigns yet. Switch to Admin Desk to create one!
                 </div>
               ) : (
                 activeCampaigns.map((c) => {
@@ -492,21 +508,21 @@ export default function App() {
                             ₹{c.reward_inr}
                           </span>
                         </div>
-                        <h3 className="font-bold text-lg text-[#F4F4F6] mt-1">{c.title}</h3>
+                        <h3 className="font-bold text-lg text-white mt-1">{c.title}</h3>
                         
-                        <div className="flex flex-wrap items-center gap-2.5 my-3 text-xs text-[#9B9BAA]">
+                        <div className="flex flex-wrap items-center gap-2.5 my-3 text-xs text-neutral-400">
                           {c.deadline && (
                             <div className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border ${
-                              isExpired ? 'bg-red-950/60 text-red-400 border-red-800' : 'bg-[#1F1F26] border-[#2D2D3A] text-[#F4F4F6]'
+                              isExpired ? 'bg-red-950/60 text-red-400 border-red-800' : 'bg-[#1F1F26] border-[#2D2D3A] text-neutral-300'
                             }`}>
                               <Clock className="w-3 h-3" />
-                              {isExpired ? 'Deadline Passed' : `Closes: ${c.deadline}`}
+                              {isExpired ? 'Ended' : `Ends: ${c.deadline}`}
                             </div>
                           )}
                           {budgetInfo && (
-                            <div className="flex items-center gap-1 bg-[#1F1F26] border border-[#2D2D3A] px-2 py-0.5 rounded-lg text-[#F4F4F6]">
+                            <div className="flex items-center gap-1 bg-[#1F1F26] border border-[#2D2D3A] px-2 py-0.5 rounded-lg text-neutral-300">
                               <DollarSign className="w-3 h-3 text-[#887DFF]" />
-                              Pool: ₹{budgetInfo.remaining} left / ₹{c.total_budget}
+                              Pool: ₹{budgetInfo.remaining} / ₹{c.total_budget}
                             </div>
                           )}
                         </div>
@@ -517,14 +533,14 @@ export default function App() {
                           </div>
                         )}
 
-                        <p className="text-sm text-[#9B9BAA] mt-2 whitespace-pre-line leading-relaxed">{c.guidelines}</p>
+                        <p className="text-sm text-neutral-300 mt-2 whitespace-pre-line leading-relaxed">{c.guidelines}</p>
                         
                         {c.assets_url && (
                           <a
                             href={c.assets_url}
                             target="_blank"
                             rel="noreferrer"
-                            className="inline-flex items-center gap-1.5 text-xs text-[#887DFF] hover:text-[#C988FF] mt-3 bg-[#1F1F26] px-3 py-1.5 rounded-lg border border-[#2D2D3A] transition-colors"
+                            className="inline-flex items-center gap-1.5 text-xs text-[#887DFF] hover:text-[#C988FF] mt-3 bg-[#1F1F26] px-3 py-1.5 rounded-lg border border-[#2D2D3A]"
                           >
                             <LinkIcon className="w-3.5 h-3.5" /> Campaign Assets & Brief
                           </a>
@@ -538,11 +554,11 @@ export default function App() {
                         }}
                         className={`mt-5 w-full font-semibold py-2.5 rounded-xl text-sm transition-all ${
                           isExpired || budgetInfo?.isExhausted
-                            ? 'bg-[#1F1F26] text-[#9B9BAA] cursor-not-allowed'
+                            ? 'bg-[#1F1F26] text-neutral-500 cursor-not-allowed'
                             : 'bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white hover:opacity-90 shadow-md shadow-[#887DFF]/20'
                         }`}
                       >
-                        {isExpired ? 'Campaign Closed' : budgetInfo?.isExhausted ? 'Pool Exhausted' : 'Submit Campaign Work'}
+                        {isExpired ? 'Campaign Closed' : budgetInfo?.isExhausted ? 'Budget Exhausted' : 'Submit Campaign Work'}
                       </button>
                     </div>
                   );
@@ -557,18 +573,18 @@ export default function App() {
           <div className="space-y-4">
             <div className="flex justify-between items-center mb-2">
               <div>
-                <h2 className="text-xl font-bold text-[#F4F4F6]">Viral Reel Bounties</h2>
-                <p className="text-xs text-[#9B9BAA]">Earn per view threshold or creative prompt</p>
+                <h2 className="text-xl font-bold text-white">Active Reel Bounties</h2>
+                <p className="text-xs text-neutral-400">Compete with video edits and earn per submission</p>
               </div>
-              <span className="text-xs text-[#C988FF] font-semibold bg-[#C988FF]/10 border border-[#C988FF]/20 px-2.5 py-1 rounded-full">
-                {activeBounties.length} bounties open
+              <span className="text-xs text-[#C988FF] bg-[#C988FF]/10 border border-[#C988FF]/20 px-3 py-1 rounded-full">
+                {activeBounties.length} open
               </span>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               {activeBounties.length === 0 ? (
-                <div className="col-span-2 text-center py-16 text-[#9B9BAA] bg-[#13131A] border border-[#1F1F26] rounded-2xl">
-                  No active bounties at this moment. Create one from the Admin Desk!
+                <div className="col-span-2 text-center py-16 text-neutral-500 bg-[#13131A] border border-[#1F1F26] rounded-2xl">
+                  No bounties open right now. Publish one from the Admin Desk!
                 </div>
               ) : (
                 activeBounties.map((b) => {
@@ -586,19 +602,19 @@ export default function App() {
                             ₹{b.reward_inr}
                           </span>
                         </div>
-                        <h3 className="font-bold text-lg text-[#F4F4F6] mt-1">{b.title}</h3>
+                        <h3 className="font-bold text-lg text-white mt-1">{b.title}</h3>
                         
-                        <div className="flex flex-wrap items-center gap-2.5 my-3 text-xs text-[#9B9BAA]">
+                        <div className="flex flex-wrap items-center gap-2.5 my-3 text-xs text-neutral-400">
                           {b.deadline && (
                             <div className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border ${
-                              isExpired ? 'bg-red-950/60 text-red-400 border-red-800' : 'bg-[#1F1F26] border-[#2D2D3A] text-[#F4F4F6]'
+                              isExpired ? 'bg-red-950/60 text-red-400 border-red-800' : 'bg-[#1F1F26] border-[#2D2D3A] text-neutral-300'
                             }`}>
                               <Clock className="w-3 h-3" />
-                              {isExpired ? 'Deadline Passed' : `Closes: ${b.deadline}`}
+                              {isExpired ? 'Ended' : `Ends: ${b.deadline}`}
                             </div>
                           )}
                           {budgetInfo && (
-                            <div className="flex items-center gap-1 bg-[#1F1F26] border border-[#2D2D3A] px-2 py-0.5 rounded-lg text-[#F4F4F6]">
+                            <div className="flex items-center gap-1 bg-[#1F1F26] border border-[#2D2D3A] px-2 py-0.5 rounded-lg text-neutral-300">
                               <DollarSign className="w-3 h-3 text-[#C988FF]" />
                               Pool: ₹{budgetInfo.remaining} / ₹{b.total_budget}
                             </div>
@@ -611,7 +627,7 @@ export default function App() {
                           </div>
                         )}
 
-                        <p className="text-sm text-[#9B9BAA] mt-2 whitespace-pre-line leading-relaxed">{b.guidelines}</p>
+                        <p className="text-sm text-neutral-300 mt-2 whitespace-pre-line leading-relaxed">{b.guidelines}</p>
                         
                         {b.assets_url && (
                           <a
@@ -620,7 +636,7 @@ export default function App() {
                             rel="noreferrer"
                             className="inline-flex items-center gap-1.5 text-xs text-[#C988FF] hover:underline mt-3 bg-[#1F1F26] px-3 py-1.5 rounded-lg border border-[#2D2D3A]"
                           >
-                            <LinkIcon className="w-3.5 h-3.5" /> Raw Clips & Audio Stems
+                            <LinkIcon className="w-3.5 h-3.5" /> Footage & Audio Assets
                           </a>
                         )}
                       </div>
@@ -632,7 +648,7 @@ export default function App() {
                         }}
                         className={`mt-5 w-full font-semibold py-2.5 rounded-xl text-sm transition-all ${
                           isExpired || budgetInfo?.isExhausted
-                            ? 'bg-[#1F1F26] text-[#9B9BAA] cursor-not-allowed'
+                            ? 'bg-[#1F1F26] text-neutral-500 cursor-not-allowed'
                             : 'bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white hover:opacity-90 shadow-md shadow-[#887DFF]/20'
                         }`}
                       >
@@ -650,21 +666,21 @@ export default function App() {
         {activeTab === 'leaderboard' && (
           <div className="max-w-3xl mx-auto space-y-6">
             <div className="text-center">
-              <div className="inline-flex items-center justify-center w-14 h-14 bg-[#887DFF]/10 border border-[#887DFF]/20 rounded-2xl mb-3 shadow-lg shadow-[#887DFF]/10">
-                <CreatorCoreLogo className="w-8 h-8" />
+              <div className="inline-flex items-center justify-center w-14 h-14 bg-[#887DFF]/10 border border-[#887DFF]/20 rounded-2xl mb-2">
+                <CreatorCoreLogo size={32} />
               </div>
-              <h2 className="text-2xl font-extrabold text-[#F4F4F6]">Creator Core Hall of Fame</h2>
-              <p className="text-sm text-[#9B9BAA]">Recognizing top video editors and viral content creators</p>
+              <h2 className="text-2xl font-extrabold text-white">Creator Hall of Fame</h2>
+              <p className="text-xs text-neutral-400">Top video editors and creators ranked by paid earnings</p>
             </div>
 
             {leaderboard.length === 0 ? (
-              <div className="text-center py-16 text-[#9B9BAA] bg-[#13131A] border border-[#1F1F26] rounded-2xl">
-                No payouts recorded yet. The first creators paid will rank here!
+              <div className="text-center py-16 text-neutral-500 bg-[#13131A] border border-[#1F1F26] rounded-2xl">
+                No payouts completed yet. Approved creators will appear here!
               </div>
             ) : (
               <div className="bg-[#13131A] border border-[#1F1F26] rounded-2xl overflow-hidden shadow-xl">
                 <table className="w-full text-left text-sm">
-                  <thead className="text-xs uppercase text-[#9B9BAA] bg-[#1F1F26]/60 border-b border-[#1F1F26]">
+                  <thead className="text-xs uppercase text-neutral-400 bg-[#1F1F26]/60 border-b border-[#1F1F26]">
                     <tr>
                       <th className="py-3 px-4">Rank</th>
                       <th>Creator</th>
@@ -679,14 +695,14 @@ export default function App() {
                         <td className="py-3.5 px-4 font-bold">
                           {index === 0 ? '🥇 1st' : index === 1 ? '🥈 2nd' : index === 2 ? '🥉 3rd' : `#${index + 1}`}
                         </td>
-                        <td className="font-semibold text-[#F4F4F6]">
+                        <td className="font-semibold text-white">
                           <span className="flex items-center gap-1.5">
                             {creator.handle}
                             {index === 0 && <Sparkles className="w-4 h-4 text-[#887DFF]" />}
                           </span>
                         </td>
-                        <td className="text-[#9B9BAA]">{creator.paidSubmissions}</td>
-                        <td className="text-[#9B9BAA]">{creator.totalViews.toLocaleString()}</td>
+                        <td className="text-neutral-400">{creator.paidSubmissions}</td>
+                        <td className="text-neutral-400">{creator.totalViews.toLocaleString()}</td>
                         <td className="text-right px-4 font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-[#887DFF] to-[#C988FF]">
                           ₹{creator.totalEarned.toLocaleString()}
                         </td>
@@ -701,30 +717,32 @@ export default function App() {
 
         {/* ================= TAB 4: SUBMIT PROOF ================= */}
         {activeTab === 'submit' && (
-          <div className="max-w-lg mx-auto bg-[#13131A] border border-[#1F1F26] p-6 sm:p-7 rounded-2xl shadow-xl">
-            <h2 className="text-lg font-bold mb-1 text-[#F4F4F6]">Submit Proof of Work</h2>
-            <p className="text-xs text-[#9B9BAA] mb-5">Link your published content to claim verified UPI payout.</p>
+          <div className="max-w-lg mx-auto bg-[#13131A] border border-[#1F1F26] p-6 rounded-2xl shadow-xl">
+            <h2 className="text-lg font-bold mb-1 text-white">Submit Proof of Work</h2>
+            <p className="text-xs text-neutral-400 mb-5">Link your published content to claim verified UPI payout.</p>
             
             {!user ? (
               <div className="text-center py-8 bg-[#1F1F26]/40 border border-[#2D2D3A] rounded-xl p-6">
-                <CreatorCoreLogo className="w-10 h-10 mx-auto mb-3 opacity-90" />
-                <h3 className="font-bold text-[#F4F4F6] mb-1">Sign In to Claim Bounty</h3>
-                <p className="text-xs text-[#9B9BAA] mb-4">Create an account to securely save your UPI ID and track approvals.</p>
+                <div className="flex justify-center mb-3">
+                  <CreatorCoreLogo size={48} />
+                </div>
+                <h3 className="font-bold text-white mb-1">Sign In Required</h3>
+                <p className="text-xs text-neutral-400 mb-4">Create an account or sign in to link your UPI and track submissions.</p>
                 <button
                   onClick={() => setShowAuthModal(true)}
-                  className="bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-bold py-2.5 px-6 rounded-xl text-sm shadow-lg shadow-[#887DFF]/20 hover:opacity-90 transition-all"
+                  className="bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-bold py-2.5 px-6 rounded-xl text-sm shadow-md shadow-[#887DFF]/20 hover:opacity-90 transition-all"
                 >
-                  Sign In or Join
+                  Sign In or Create Account
                 </button>
               </div>
             ) : (
               <form onSubmit={handleSubmitProof} className="space-y-4">
                 <div>
-                  <label className="text-xs text-[#9B9BAA] font-medium">Select Listing</label>
+                  <label className="text-xs text-neutral-400 font-medium">Select Listing</label>
                   <select
                     value={submissionForm.campaign_id}
                     onChange={(e) => setSubmissionForm({ ...submissionForm, campaign_id: e.target.value })}
-                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-[#F4F4F6] outline-none focus:border-[#887DFF]"
+                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-neutral-200 outline-none focus:border-[#887DFF]"
                   >
                     {items.filter(i => i.status === 'ACTIVE').map((i) => (
                       <option key={i.id} value={i.id}>
@@ -734,49 +752,49 @@ export default function App() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-[#9B9BAA] font-medium">Your Social Handle</label>
+                  <label className="text-xs text-neutral-400 font-medium">Your Social Handle</label>
                   <input
                     required
                     placeholder="@your_handle"
                     value={submissionForm.creator_handle}
                     onChange={(e) => setSubmissionForm({ ...submissionForm, creator_handle: e.target.value })}
-                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm outline-none focus:border-[#887DFF]"
+                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-[#9B9BAA] font-medium">Content URL (Instagram Reel / Shorts)</label>
+                  <label className="text-xs text-neutral-400 font-medium">Content URL (Instagram Reel / Shorts)</label>
                   <input
                     required
                     placeholder="https://www.instagram.com/reel/..."
                     value={submissionForm.reel_url}
                     onChange={(e) => setSubmissionForm({ ...submissionForm, reel_url: e.target.value })}
-                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm outline-none focus:border-[#887DFF]"
+                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-[#9B9BAA] font-medium">Current View Count</label>
+                  <label className="text-xs text-neutral-400 font-medium">Current View Count</label>
                   <input
                     required
                     type="number"
                     placeholder="e.g. 25000"
                     value={submissionForm.views_claimed}
                     onChange={(e) => setSubmissionForm({ ...submissionForm, views_claimed: e.target.value })}
-                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm outline-none focus:border-[#887DFF]"
+                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-[#9B9BAA] font-medium">UPI ID for Direct Transfer</label>
+                  <label className="text-xs text-neutral-400 font-medium">UPI ID (For Direct Payout)</label>
                   <input
                     required
                     placeholder="name@okhdfcbank or 9876543210@paytm"
                     value={submissionForm.upi_id}
                     onChange={(e) => setSubmissionForm({ ...submissionForm, upi_id: e.target.value })}
-                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm outline-none focus:border-[#887DFF]"
+                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                   />
                 </div>
                 <button 
                   type="submit" 
-                  className="w-full bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-bold py-2.5 rounded-xl text-sm shadow-lg shadow-[#887DFF]/20 hover:opacity-90 transition-all"
+                  className="w-full bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-bold py-2.5 rounded-xl text-sm shadow-md shadow-[#887DFF]/20 hover:opacity-90 transition-all"
                 >
                   Submit for Verification
                 </button>
@@ -789,29 +807,29 @@ export default function App() {
         {activeTab === 'chat' && (
           <div className="flex flex-col h-[550px] bg-[#13131A] border border-[#1F1F26] rounded-2xl overflow-hidden shadow-xl">
             <div className="p-3.5 border-b border-[#1F1F26] bg-[#1F1F26]/40 flex justify-between items-center">
-              <span className="text-xs font-bold text-[#F4F4F6] flex items-center gap-1.5">
+              <span className="text-xs font-bold text-white flex items-center gap-1.5">
                 <MessageSquare className="w-3.5 h-3.5 text-[#887DFF]" /> Creator Core Hub
               </span>
               {isAdmin && (
                 <span className="text-[10px] bg-[#887DFF]/20 text-[#C988FF] px-2 py-0.5 rounded-lg border border-[#887DFF]/30">
-                  Admin Privileges
+                  Admin Active
                 </span>
               )}
             </div>
             <div className="flex-1 p-4 overflow-y-auto space-y-2.5">
               {messages.length === 0 ? (
-                <p className="text-[#9B9BAA] text-sm text-center mt-20">No messages yet. Start the conversation!</p>
+                <p className="text-neutral-500 text-sm text-center mt-20">No messages yet. Say hello!</p>
               ) : (
                 messages.map((m) => (
                   <div key={m.id} className="text-sm bg-[#1F1F26]/60 border border-[#2D2D3A] p-2.5 rounded-xl flex justify-between items-start group">
                     <div>
                       <span className="font-bold text-[#887DFF] text-xs">{m.sender_name}: </span>
-                      <span className="text-[#F4F4F6]">{m.content}</span>
+                      <span className="text-neutral-200">{m.content}</span>
                     </div>
                     {isAdmin && (
                       <button
                         onClick={() => deleteChatMessage(m.id)}
-                        className="text-[#9B9BAA] hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity ml-2"
+                        className="text-neutral-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity ml-2"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -825,15 +843,15 @@ export default function App() {
                 <input
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Share editing tips, collaborate, or ask questions..."
-                  className="flex-1 bg-[#1F1F26] border border-[#2D2D3A] px-3.5 py-2 rounded-xl text-sm text-[#F4F4F6] outline-none focus:border-[#887DFF]"
+                  placeholder="Discuss hooks, video ideas, or collab..."
+                  className="flex-1 bg-[#1F1F26] border border-[#2D2D3A] px-3.5 py-2 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                 />
                 <button type="submit" className="bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white px-4 py-2 rounded-xl font-medium hover:opacity-90">
                   <Send className="w-4 h-4" />
                 </button>
               </form>
             ) : (
-              <div className="p-3.5 bg-[#13131A] border-t border-[#1F1F26] text-center">
+              <div className="p-3 bg-[#13131A] border-t border-[#1F1F26] text-center">
                 <button
                   onClick={() => setShowAuthModal(true)}
                   className="text-xs text-[#887DFF] hover:underline font-semibold"
@@ -853,8 +871,8 @@ export default function App() {
                 <div className="w-12 h-12 bg-[#887DFF]/10 border border-[#887DFF]/20 rounded-2xl flex items-center justify-center mx-auto mb-3">
                   <Shield className="w-6 h-6 text-[#887DFF]" />
                 </div>
-                <h3 className="font-bold text-lg mb-1 text-[#F4F4F6]">Admin Desk</h3>
-                <p className="text-xs text-[#9B9BAA] mb-4">Enter secret security PIN to manage listings and UPI payouts.</p>
+                <h3 className="font-bold text-lg mb-1 text-white">Admin Desk</h3>
+                <p className="text-xs text-neutral-400 mb-4">Enter secret PIN to manage listings and UPI payouts.</p>
                 <form onSubmit={handlePinSubmit} className="space-y-3">
                   <input
                     type="password"
@@ -862,12 +880,12 @@ export default function App() {
                     placeholder="PIN"
                     value={pinInput}
                     onChange={(e) => setPinInput(e.target.value)}
-                    className="w-full text-center bg-[#1F1F26] border border-[#2D2D3A] py-2 rounded-xl text-lg tracking-widest text-[#F4F4F6] outline-none focus:border-[#887DFF]"
+                    className="w-full text-center bg-[#1F1F26] border border-[#2D2D3A] py-2 rounded-xl text-lg tracking-widest text-white outline-none focus:border-[#887DFF]"
                   />
                   {pinError && <p className="text-xs text-red-400">Incorrect PIN.</p>}
                   <button 
                     type="submit" 
-                    className="w-full bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-bold py-2 rounded-xl text-sm hover:opacity-90 shadow-lg shadow-[#887DFF]/20"
+                    className="w-full bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-bold py-2 rounded-xl text-sm hover:opacity-90 shadow-md shadow-[#887DFF]/20"
                   >
                     Unlock Desk
                   </button>
@@ -877,7 +895,7 @@ export default function App() {
               <div className="space-y-8">
                 {/* 1. Post New Listing */}
                 <div className="bg-[#13131A] border border-[#1F1F26] p-5 rounded-2xl shadow-lg">
-                  <h3 className="font-bold text-base mb-3 flex items-center gap-2 text-[#F4F4F6]">
+                  <h3 className="font-bold text-base mb-3 flex items-center gap-2 text-white">
                     <PlusCircle className="w-5 h-5 text-[#887DFF]" /> Create New Listing
                   </h3>
                   
@@ -887,8 +905,8 @@ export default function App() {
                       onClick={() => setNewItem({ ...newItem, type: 'CAMPAIGN' })}
                       className={`flex-1 py-2 rounded-xl font-bold text-xs border transition-all ${
                         newItem.type === 'CAMPAIGN' 
-                          ? 'bg-[#887DFF] text-white border-[#887DFF] shadow-md shadow-[#887DFF]/20' 
-                          : 'bg-[#1F1F26] text-[#9B9BAA] border-[#2D2D3A] hover:text-white'
+                          ? 'bg-[#887DFF] text-white border-[#887DFF]' 
+                          : 'bg-[#1F1F26] text-neutral-400 border-[#2D2D3A] hover:text-white'
                       }`}
                     >
                       Post as Campaign
@@ -898,8 +916,8 @@ export default function App() {
                       onClick={() => setNewItem({ ...newItem, type: 'BOUNTY' })}
                       className={`flex-1 py-2 rounded-xl font-bold text-xs border transition-all ${
                         newItem.type === 'BOUNTY' 
-                          ? 'bg-[#C988FF] text-white border-[#C988FF] shadow-md shadow-[#C988FF]/20' 
-                          : 'bg-[#1F1F26] text-[#9B9BAA] border-[#2D2D3A] hover:text-white'
+                          ? 'bg-[#C988FF] text-white border-[#C988FF]' 
+                          : 'bg-[#1F1F26] text-neutral-400 border-[#2D2D3A] hover:text-white'
                       }`}
                     >
                       Post as Bounty
@@ -912,7 +930,7 @@ export default function App() {
                       placeholder="Brand or Host Handle (e.g. FitRaj)"
                       value={newItem.creator_name}
                       onChange={(e) => setNewItem({ ...newItem, creator_name: e.target.value })}
-                      className="bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm outline-none focus:border-[#887DFF]"
+                      className="bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                     />
                     <input
                       required
@@ -920,45 +938,45 @@ export default function App() {
                       placeholder="Reward per Winner in ₹ (e.g. 1000)"
                       value={newItem.reward_inr}
                       onChange={(e) => setNewItem({ ...newItem, reward_inr: e.target.value })}
-                      className="bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm outline-none focus:border-[#887DFF]"
+                      className="bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                     />
                     <input
                       type="number"
                       placeholder="Total Pool Budget in ₹ (Optional, e.g. 10000)"
                       value={newItem.total_budget}
                       onChange={(e) => setNewItem({ ...newItem, total_budget: e.target.value })}
-                      className="bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm outline-none focus:border-[#887DFF]"
+                      className="bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                     />
                     <input
                       type="date"
                       value={newItem.deadline}
                       onChange={(e) => setNewItem({ ...newItem, deadline: e.target.value })}
-                      className="bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-[#F4F4F6] outline-none focus:border-[#887DFF]"
+                      className="bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                     />
                     <input
                       required
                       placeholder="Title (e.g. 30s Hook Video for Nutrition Brand)"
                       value={newItem.title}
                       onChange={(e) => setNewItem({ ...newItem, title: e.target.value })}
-                      className="md:col-span-2 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm outline-none focus:border-[#887DFF]"
+                      className="md:col-span-2 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                     />
                     <input
                       placeholder="Asset / Drive Link (Logos, raw clips, reference files)"
                       value={newItem.assets_url}
                       onChange={(e) => setNewItem({ ...newItem, assets_url: e.target.value })}
-                      className="md:col-span-2 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm outline-none focus:border-[#887DFF]"
+                      className="md:col-span-2 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                     />
                     <textarea
                       required
                       placeholder="Guidelines, requirements, and minimum view milestones..."
                       value={newItem.guidelines}
                       onChange={(e) => setNewItem({ ...newItem, guidelines: e.target.value })}
-                      className="md:col-span-2 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm outline-none focus:border-[#887DFF]"
+                      className="md:col-span-2 bg-[#1F1F26] border border-[#2D2D3A] p-2.5 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                       rows={3}
                     />
                     <button 
                       type="submit" 
-                      className="md:col-span-2 py-2.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-[#887DFF] to-[#C988FF] hover:opacity-90 shadow-lg shadow-[#887DFF]/20 transition-all"
+                      className="md:col-span-2 py-2.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-[#887DFF] to-[#C988FF] hover:opacity-90 shadow-md shadow-[#887DFF]/20 transition-all"
                     >
                       Publish Listing
                     </button>
@@ -967,7 +985,7 @@ export default function App() {
 
                 {/* 2. Manage Listings */}
                 <div className="bg-[#13131A] border border-[#1F1F26] p-5 rounded-2xl shadow-lg">
-                  <h3 className="font-bold text-base mb-3 text-[#F4F4F6]">Active Listings Management</h3>
+                  <h3 className="font-bold text-base mb-3 text-white">Active Listings Management</h3>
                   <div className="space-y-2">
                     {items.map((it) => (
                       <div key={it.id} className="bg-[#1F1F26]/70 border border-[#2D2D3A] p-3 rounded-xl flex flex-col sm:flex-row justify-between sm:items-center gap-3">
@@ -978,12 +996,12 @@ export default function App() {
                             }`}>
                               {it.type || 'CAMPAIGN'}
                             </span>
-                            <span className="font-bold text-sm text-[#F4F4F6]">{it.title}</span>
-                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${it.status === 'ACTIVE' ? 'bg-emerald-950 text-emerald-400' : 'bg-[#2D2D3A] text-[#9B9BAA]'}`}>
+                            <span className="font-bold text-sm text-white">{it.title}</span>
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${it.status === 'ACTIVE' ? 'bg-emerald-950 text-emerald-400' : 'bg-[#2D2D3A] text-neutral-400'}`}>
                               {it.status}
                             </span>
                           </div>
-                          <span className="text-xs text-[#9B9BAA]">
+                          <span className="text-xs text-neutral-400">
                             @{it.creator_name} • ₹{it.reward_inr}
                             {it.total_budget > 0 && ` • Pool: ₹${it.total_budget}`}
                             {it.deadline && ` • Closes: ${it.deadline}`}
@@ -992,7 +1010,7 @@ export default function App() {
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => toggleItemStatus(it.id, it.status)}
-                            className="text-xs bg-[#1F1F26] hover:bg-[#2D2D3A] border border-[#2D2D3A] px-3 py-1.5 rounded-lg flex items-center gap-1 text-[#F4F4F6]"
+                            className="text-xs bg-[#1F1F26] hover:bg-[#2D2D3A] border border-[#2D2D3A] px-3 py-1.5 rounded-lg flex items-center gap-1 text-white"
                           >
                             {it.status === 'ACTIVE' ? <><PauseCircle className="w-3.5 h-3.5 text-[#887DFF]" /> Pause</> : <><PlayCircle className="w-3.5 h-3.5 text-emerald-400" /> Resume</>}
                           </button>
@@ -1010,10 +1028,10 @@ export default function App() {
 
                 {/* 3. Submissions & UPI Payouts */}
                 <div className="bg-[#13131A] border border-[#1F1F26] p-5 rounded-2xl shadow-lg">
-                  <h3 className="font-bold text-base mb-3 text-[#F4F4F6]">Submissions & UPI Payout Desk</h3>
+                  <h3 className="font-bold text-base mb-3 text-white">Submissions & UPI Payout Desk</h3>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
-                      <thead className="text-xs uppercase text-[#9B9BAA] border-b border-[#1F1F26]">
+                      <thead className="text-xs uppercase text-neutral-400 border-b border-[#1F1F26]">
                         <tr>
                           <th className="py-2.5">Creator</th>
                           <th>Views</th>
@@ -1025,9 +1043,9 @@ export default function App() {
                       </thead>
                       <tbody className="divide-y border-[#1F1F26]">
                         {submissions.map((s) => (
-                          <tr key={s.id} className="text-[#F4F4F6]">
+                          <tr key={s.id} className="text-white">
                             <td className="py-3 font-medium">{s.creator_handle}</td>
-                            <td className="text-[#9B9BAA]">{s.views_claimed.toLocaleString()}</td>
+                            <td className="text-neutral-400">{s.views_claimed.toLocaleString()}</td>
                             <td>
                               <a href={s.reel_url} target="_blank" rel="noreferrer" className="text-[#887DFF] hover:underline inline-flex items-center gap-1">
                                 Reel <ExternalLink className="w-3 h-3" />
@@ -1039,7 +1057,7 @@ export default function App() {
                                 className="inline-flex items-center gap-1 font-mono text-xs bg-[#1F1F26] hover:bg-[#2D2D3A] px-2 py-1 rounded-lg text-[#C988FF] border border-[#2D2D3A]"
                               >
                                 {s.upi_id}
-                                {copiedUpi === s.upi_id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-[#9B9BAA]" />}
+                                {copiedUpi === s.upi_id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-neutral-400" />}
                               </button>
                             </td>
                             <td>
@@ -1062,7 +1080,7 @@ export default function App() {
                                   </button>
                                   <button
                                     onClick={() => updateSubmissionStatus(s.id, 'REJECTED')}
-                                    className="bg-[#1F1F26] hover:bg-[#2D2D3A] text-[#9B9BAA] px-2 py-1 rounded-lg text-xs border border-[#2D2D3A]"
+                                    className="bg-[#1F1F26] hover:bg-[#2D2D3A] text-neutral-400 px-2 py-1 rounded-lg text-xs border border-[#2D2D3A]"
                                   >
                                     Reject
                                   </button>
@@ -1070,7 +1088,7 @@ export default function App() {
                               )}
                               <button
                                 onClick={() => deleteSubmission(s.id)}
-                                className="text-[#9B9BAA] hover:text-red-400 p-1"
+                                className="text-neutral-500 hover:text-red-400 p-1"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -1093,17 +1111,19 @@ export default function App() {
           <div className="bg-[#13131A] border border-[#1F1F26] max-w-sm w-full p-6 sm:p-7 rounded-3xl relative shadow-2xl">
             <button
               onClick={() => setShowAuthModal(false)}
-              className="absolute top-4 right-4 text-[#9B9BAA] hover:text-white"
+              className="absolute top-4 right-4 text-neutral-400 hover:text-white"
             >
               <X className="w-5 h-5" />
             </button>
 
             <div className="text-center mb-5">
-              <CreatorCoreLogo className="w-12 h-12 mx-auto mb-2 drop-shadow-[0_0_12px_rgba(136,125,255,0.4)]" />
-              <h3 className="font-extrabold text-xl text-[#F4F4F6]">
+              <div className="flex justify-center mb-2">
+                <CreatorCoreLogo size={44} />
+              </div>
+              <h3 className="font-extrabold text-xl text-white">
                 {authMode === 'signin' ? 'Welcome Back' : 'Join Creator Core'}
               </h3>
-              <p className="text-xs text-[#9B9BAA] mt-1">
+              <p className="text-xs text-neutral-400 mt-1">
                 {authMode === 'signin' ? 'Sign in to submit work and claim UPI payouts' : 'Create an account to join campaigns and earn bounties'}
               </p>
             </div>
@@ -1130,37 +1150,37 @@ export default function App() {
 
             <div className="flex items-center gap-2 mb-4">
               <div className="flex-1 border-b border-[#2D2D3A]" />
-              <span className="text-[10px] uppercase tracking-wider text-[#9B9BAA] font-semibold">Or use email</span>
+              <span className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">Or use email</span>
               <div className="flex-1 border-b border-[#2D2D3A]" />
             </div>
 
             <form onSubmit={handleEmailAuth} className="space-y-3">
               {authMode === 'signup' && (
                 <div>
-                  <label className="text-[11px] text-[#9B9BAA] font-medium">Your Name / Creator Handle</label>
+                  <label className="text-[11px] text-neutral-400 font-medium">Your Name / Creator Handle</label>
                   <input
                     required
                     type="text"
                     placeholder="e.g. Aarav Sharma"
                     value={authName}
                     onChange={(e) => setAuthName(e.target.value)}
-                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] px-3 py-2 rounded-xl text-sm text-[#F4F4F6] outline-none focus:border-[#887DFF]"
+                    className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] px-3 py-2 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                   />
                 </div>
               )}
               <div>
-                <label className="text-[11px] text-[#9B9BAA] font-medium">Email Address</label>
+                <label className="text-[11px] text-neutral-400 font-medium">Email Address</label>
                 <input
                   required
                   type="email"
                   placeholder="creator@example.com"
                   value={authEmail}
                   onChange={(e) => setAuthEmail(e.target.value)}
-                  className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] px-3 py-2 rounded-xl text-sm text-[#F4F4F6] outline-none focus:border-[#887DFF]"
+                  className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] px-3 py-2 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                 />
               </div>
               <div>
-                <label className="text-[11px] text-[#9B9BAA] font-medium">Password</label>
+                <label className="text-[11px] text-neutral-400 font-medium">Password</label>
                 <input
                   required
                   type="password"
@@ -1168,14 +1188,14 @@ export default function App() {
                   placeholder="At least 6 characters"
                   value={authPassword}
                   onChange={(e) => setAuthPassword(e.target.value)}
-                  className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] px-3 py-2 rounded-xl text-sm text-[#F4F4F6] outline-none focus:border-[#887DFF]"
+                  className="w-full mt-1 bg-[#1F1F26] border border-[#2D2D3A] px-3 py-2 rounded-xl text-sm text-white outline-none focus:border-[#887DFF]"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={authLoading}
-                className="w-full bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-bold py-2.5 rounded-xl text-sm hover:opacity-90 shadow-lg shadow-[#887DFF]/20 transition-all mt-2"
+                className="w-full bg-gradient-to-r from-[#887DFF] to-[#C988FF] text-white font-bold py-2.5 rounded-xl text-sm hover:opacity-90 shadow-md shadow-[#887DFF]/20 transition-all mt-2"
               >
                 {authLoading ? 'Processing...' : authMode === 'signin' ? 'Sign In' : 'Create Account'}
               </button>
@@ -1183,7 +1203,7 @@ export default function App() {
 
             <div className="mt-4 text-center">
               {authMode === 'signin' ? (
-                <p className="text-xs text-[#9B9BAA]">
+                <p className="text-xs text-neutral-400">
                   New creator?{' '}
                   <button
                     onClick={() => { setAuthMode('signup'); setAuthError(''); }}
@@ -1193,7 +1213,7 @@ export default function App() {
                   </button>
                 </p>
               ) : (
-                <p className="text-xs text-[#9B9BAA]">
+                <p className="text-xs text-neutral-400">
                   Already have an account?{' '}
                   <button
                     onClick={() => { setAuthMode('signin'); setAuthError(''); }}
