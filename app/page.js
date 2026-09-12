@@ -15,7 +15,7 @@ import {
   PauseCircle, PlayCircle, Send, Link as LinkIcon, PlusCircle, Trophy, Clock, 
   DollarSign, LogIn, LogOut, User, X, 
   ArrowUpRight, Calculator, Calendar, Building2, CheckSquare,
-  Search, SlidersHorizontal, AlertCircle, Check
+  Search, SlidersHorizontal, AlertCircle, Check, QrCode
 } from 'lucide-react';
 
 const PRIMARY_ADMIN_EMAIL = 'gameraarush999@gmail.com';
@@ -87,6 +87,9 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [copiedUpi, setCopiedUpi] = useState('');
 
+  // QR Modal State
+  const [qrModal, setQrModal] = useState(null);
+
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('newest');
@@ -118,7 +121,9 @@ export default function App() {
 
   const isAdmin = useMemo(() => {
     if (!user?.email) return false;
-    return user.email.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase() || Boolean(profile?.is_admin);
+    const myEmail = user.email.toLowerCase().trim();
+    const masterEmail = PRIMARY_ADMIN_EMAIL.toLowerCase().trim();
+    return myEmail === masterEmail || Boolean(profile?.is_admin);
   }, [user, profile]);
 
   useEffect(() => {
@@ -249,7 +254,6 @@ export default function App() {
     setActiveTab('campaigns');
   };
 
-  // Secure Server Action: Submit Proof with automated view verification
   const handleSubmitProof = async (e) => {
     e.preventDefault();
     if (!user) return setShowAuthModal(true);
@@ -281,9 +285,9 @@ export default function App() {
     }
   };
 
-  // Secure Server Action: 1-Click Instant UPI Payout
   const handleApproveWithPayout = async (submissionId) => {
-    if (!confirm('Approve submission and trigger instant UPI payout?')) return;
+    // Note: If using the QR Modal, we skip Cashfree automation and just mark it as paid.
+    if (!confirm('Mark submission as paid and generate tracking ID?')) return;
 
     const res = await approveSubmissionAction({
       submissionId,
@@ -291,9 +295,10 @@ export default function App() {
     });
 
     if (res.error) {
-      alert('Payout Failed: ' + res.error);
+      alert('Action Failed: ' + res.error);
     } else {
-      alert(`Success! ₹${res.amount} sent via UPI. Reference ID: ${res.txId}`);
+      alert(`Success! Marked as paid. Reference ID: ${res.txId}`);
+      setQrModal(null); // Close QR modal if open
       fetchSubmissions();
     }
   };
@@ -552,7 +557,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB: MY CAMPAIGNS (Restored) */}
+        {/* TAB: MY CAMPAIGNS */}
         {activeTab === 'my-campaigns' && (
           <div style={{ maxWidth: '900px', margin: '0 auto' }}>
             <div style={{ marginBottom: '24px' }}>
@@ -652,7 +657,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB: CAMPAIGNS (Restored with Budget Bar) */}
+        {/* TAB: CAMPAIGNS */}
         {activeTab === 'campaigns' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '20px' }}>
@@ -767,7 +772,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB: MY SUBMISSIONS (Restored Full View) */}
+        {/* TAB: MY SUBMISSIONS */}
         {activeTab === 'my-submissions' && (
           <div style={{ maxWidth: '820px', margin: '0 auto' }}>
             <div style={{ marginBottom: '24px' }}>
@@ -867,7 +872,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB: SUBMIT PROOF (Restored with Live Calculator Card) */}
+        {/* TAB: SUBMIT PROOF */}
         {activeTab === 'submit' && (
           <div style={{ maxWidth: '520px', margin: '0 auto', backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '24px', padding: '28px' }}>
             <h2 style={{ fontSize: '20px', fontWeight: 800, margin: '0 0 6px 0', color: '#FFFFFF' }}>Submit Proof of Work</h2>
@@ -1034,12 +1039,13 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB: ADMIN DESK (Restored Full Control Table & Creator Actions) */}
+        {/* TAB: ADMIN DESK */}
         {activeTab === 'admin' && isAdmin && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            
             {/* 1. Review Table */}
             <div style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '20px', padding: '24px', overflowX: 'auto' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 16px 0', color: '#FFFFFF' }}>Review & 1-Click Instant UPI Disbursements</h3>
+              <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 16px 0', color: '#FFFFFF' }}>Review & Instant UPI Disbursements</h3>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                 <thead>
                   <tr style={{ color: '#8E8E9F', borderBottom: '1px solid rgba(255, 255, 255, 0.06)', fontSize: '11px', textTransform: 'uppercase' }}>
@@ -1047,9 +1053,8 @@ export default function App() {
                     <th>Metric</th>
                     <th>Payout</th>
                     <th>Proof</th>
-                    <th>UPI Handle</th>
                     <th>Status</th>
-                    <th>Action</th>
+                    <th>Founder Mode Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1064,11 +1069,6 @@ export default function App() {
                           <a href={s.reel_url} target="_blank" rel="noreferrer" style={{ color: '#C988FF', textDecoration: 'none', fontWeight: 600 }}>Proof ↗</a>
                         </td>
                         <td>
-                          <button onClick={() => copyToClipboard(s.upi_id)} style={{ backgroundColor: 'rgba(255, 255, 255, 0.05)', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontFamily: 'monospace', color: '#C988FF', border: 'none', cursor: 'pointer' }}>
-                            {s.upi_id} {copiedUpi === s.upi_id ? '✓' : ''}
-                          </button>
-                        </td>
-                        <td>
                           <span style={{ fontSize: '10px', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', backgroundColor: s.status === 'PAID' ? 'rgba(34, 197, 94, 0.15)' : s.status === 'REJECTED' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)', color: s.status === 'PAID' ? '#4ADE80' : s.status === 'REJECTED' ? '#F87171' : '#FBBF24' }}>
                             {s.status === 'PAID' ? 'PAID VIA UPI' : s.status}
                           </span>
@@ -1076,10 +1076,10 @@ export default function App() {
                         <td>
                           {s.status === 'PENDING' ? (
                             <div style={{ display: 'flex', gap: '6px' }}>
-                              <button onClick={() => handleApproveWithPayout(s.id)} style={{ backgroundColor: '#22C55E', color: '#000000', padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 800, border: 'none', cursor: 'pointer' }}>
-                                Approve & Pay (UPI)
+                              <button onClick={() => setQrModal({ id: s.id, upi_id: s.upi_id, amount: payout, handle: s.creator_handle })} style={{ backgroundColor: '#22C55E', color: '#000000', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 800, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <QrCode size={12} /> Scan & Pay
                               </button>
-                              <button onClick={() => handleRejectSubmission(s.id)} style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#F87171', padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, border: 'none', cursor: 'pointer' }}>
+                              <button onClick={() => handleRejectSubmission(s.id)} style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#F87171', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, border: 'none', cursor: 'pointer' }}>
                                 Reject
                               </button>
                             </div>
@@ -1155,7 +1155,45 @@ export default function App() {
         )}
       </main>
 
-      {/* Auth Modal (Restored with Google Sign-in) */}
+      {/* Founder Mode: QR Payout Modal */}
+      {qrModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '16px' }}>
+          <div style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '24px', maxWidth: '360px', width: '100%', padding: '28px', position: 'relative', textAlign: 'center' }}>
+            <button onClick={() => setQrModal(null)} style={{ position: 'absolute', top: '16px', right: '16px', color: '#8E8E9F', background: 'none', border: 'none', cursor: 'pointer' }}>
+              <X size={18} />
+            </button>
+            
+            <h3 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 4px 0', color: '#FFFFFF' }}>Scan to Pay {qrModal.handle}</h3>
+            <p style={{ fontSize: '12px', color: '#8E8E9F', margin: '0 0 20px 0' }}>Open GPay, PhonePe, or Paytm</p>
+
+            <div style={{ backgroundColor: '#FFFFFF', padding: '16px', borderRadius: '16px', display: 'inline-block', margin: '0 auto 20px auto' }}>
+              {/* This generates a dynamic UPI QR code on the fly */}
+              <img 
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`upi://pay?pa=${qrModal.upi_id}&pn=${qrModal.handle}&am=${qrModal.amount}&cu=INR`)}`} 
+                alt="UPI QR Code" 
+                style={{ width: '200px', height: '200px', display: 'block' }} 
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#09090D', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '12px 16px', marginBottom: '20px' }}>
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: '#8E8E9F', textTransform: 'uppercase' }}>Amount to Pay</div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: '#4ADE80', fontFamily: 'monospace' }}>₹{qrModal.amount}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: '#8E8E9F', textTransform: 'uppercase' }}>UPI ID</div>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: '#C988FF' }}>{qrModal.upi_id}</div>
+              </div>
+            </div>
+
+            <button onClick={() => handleApproveWithPayout(qrModal.id)} style={{ width: '100%', background: '#22C55E', color: '#000000', fontWeight: 800, fontSize: '13px', padding: '12px', borderRadius: '12px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+              <Check size={16} /> I have paid via my phone
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Auth Modal */}
       {showAuthModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '16px' }}>
           <div style={{ backgroundColor: '#121217', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '24px', maxWidth: '380px', width: '100%', padding: '28px', position: 'relative' }}>
